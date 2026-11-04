@@ -198,18 +198,8 @@ def fold(changeset, ct_by_id, rules):
     return folded
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--days', type=int, default=90)
-    ap.add_argument('--page', type=int, default=1000)
-    ap.add_argument('--samples', type=int, default=10, help='exact related-object checks per object type')
-    ap.add_argument('--insecure', action='store_true', help='do not verify the TLS certificate')
-    args = ap.parse_args()
-
-    api = Api(os.environ['NETBOX_URL'], os.environ['NETBOX_TOKEN'], args.insecure)
-    started = time.monotonic()
-    since = (datetime.now(timezone.utc) - timedelta(days=args.days)).strftime('%Y-%m-%dT%H:%M:%SZ')
-
+def fetch_object_types(api):
+    """{content type id: "app_label.model"}"""
     ct_by_id = {}
     params = {'limit': 1000, 'offset': 0}
     while True:
@@ -219,12 +209,16 @@ def main():
         if not page['next']:
             break
         params['offset'] += 1000
+    return ct_by_id
 
+
+def fetch_records(api, since, page_size=1000):
+    """All change records since the given time, in id order, with the fields the audits use."""
     records = []
     last_id = 0
     while True:
         page = api.get('core/object-changes/', {
-            'time_after': since, 'id__gt': last_id, 'ordering': 'id', 'limit': args.page, 'fields': FIELDS,
+            'time_after': since, 'id__gt': last_id, 'ordering': 'id', 'limit': page_size, 'fields': FIELDS,
         })
         for r in page['results']:
             records.append({
@@ -242,6 +236,23 @@ def main():
             break
         last_id = page['results'][-1]['id']
         print(f'fetched {len(records)}', file=sys.stderr)
+    return records
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--days', type=int, default=90)
+    ap.add_argument('--page', type=int, default=1000)
+    ap.add_argument('--samples', type=int, default=10, help='exact related-object checks per object type')
+    ap.add_argument('--insecure', action='store_true', help='do not verify the TLS certificate')
+    args = ap.parse_args()
+
+    api = Api(os.environ['NETBOX_URL'], os.environ['NETBOX_TOKEN'], args.insecure)
+    started = time.monotonic()
+    since = (datetime.now(timezone.utc) - timedelta(days=args.days)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    ct_by_id = fetch_object_types(api)
+    records = fetch_records(api, since, args.page)
     fetch_seconds = time.monotonic() - started
 
     sets = defaultdict(list)
