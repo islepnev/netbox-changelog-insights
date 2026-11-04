@@ -96,6 +96,20 @@ class FoldingTestCase(TestCase):
         self.assertEqual(primary(rid), [('device', 'delete')])
         self.assertEqual(records(rid).count(), 5)
 
+    def test_update_then_delete_folds_into_delete(self):
+        """NetBox updates a device before it deletes it; the change counts as a delete."""
+        dev = Device.objects.create(name='d8', device_type=self.inv['dt'], role=self.inv['role'], site=self.inv['site'])
+        with change_set(self.user) as rid:
+            dev.snapshot()
+            dev.description = 'retired'
+            dev.save()
+            Device.objects.get(pk=dev.pk).delete()
+        self.assertEqual(primary(rid), [('device', 'delete')])
+        rows, by_id = fold(rid)
+        (root, folded), = fold_tree(rows)
+        self.assertEqual(root.action, 'delete')
+        self.assertEqual(len(folded), 4)
+
     def test_ip_assigned_to_existing_interface_is_primary(self):
         iface = self.ifaces(self.inv['d1'])[0]
         with change_set(self.user) as rid:

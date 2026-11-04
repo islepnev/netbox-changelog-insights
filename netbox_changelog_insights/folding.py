@@ -3,21 +3,25 @@
 A change set is the group of ObjectChange records that share a request_id. A record
 is folded when one of these rules applies, in this order:
 
-1. repeat: an earlier record in the set is for the same object. NetBox writes a
-   create and then an update for a new cable in the same request.
+1. repeat: another record in the set is the main record of the same object: its
+   create, else its delete, else its first update. NetBox writes a create and then
+   an update for a new cable in the same request, and an update before the delete
+   of a device.
 2. cable: the record is for a cable termination and a cable record is in the set.
 3. cable fields: the record is an update that changes only cable fields
    (CABLE_FIELDS) and a cable record is in the set.
 4. related: the related object (for example the device of an interface) has a
-   record in the set.
+   record in the set; the parent is the main record of that object.
 
 A record that no rule folds is a primary record. Counts and rankings use primary
 records. The folded records stay available under their parent.
 """
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import BigIntegerField, BooleanField, Case, Exists, OuterRef, Q, Subquery, When
+from django.db.models import (
+    BigIntegerField, BooleanField, Case, Exists, F, IntegerField, OuterRef, Q, Subquery, Value, When,
+)
 from django.db.models.expressions import RawSQL
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, NullIf
 
 __all__ = (
     'CABLE_FIELDS',
@@ -78,28 +82,34 @@ def annotate_fold(queryset, scope):
     cable_type = ContentType.objects.get_by_natural_key('dcim', 'cable')
     termination_type = ContentType.objects.get_by_natural_key('dcim', 'cabletermination')
 
-    same_set = scope.filter(request_id=OuterRef('request_id')).order_by('pk').values('pk')
-    repeat = same_set.filter(
+    # The main record of an object in a set: its create, else its delete, else its first update.
+    rank = Case(
+        When(action='create', then=Value(0)),
+        When(action='delete', then=Value(1)),
+        default=Value(2),
+        output_field=IntegerField(),
+    )
+    main_record = scope.filter(request_id=OuterRef('request_id')).annotate(_rank=rank).order_by('_rank', 'pk')
+    repeat = main_record.filter(
         changed_object_type_id=OuterRef('changed_object_type_id'),
         changed_object_id=OuterRef('changed_object_id'),
-        pk__lt=OuterRef('pk'),
-    )[:1]
-    cables = same_set.filter(changed_object_type_id=cable_type.pk)
+    ).values('pk')[:1]
+    cables = main_record.filter(changed_object_type_id=cable_type.pk).values('pk')
     cable_parent = Coalesce(
         Subquery(cables.filter(changed_object_id=OuterRef('_fold_cable_ref'))[:1]),
         Subquery(cables[:1]),
     )
-    related = same_set.filter(
+    related = main_record.filter(
         changed_object_type_id=OuterRef('related_object_type_id'),
         changed_object_id=OuterRef('related_object_id'),
-    ).exclude(pk=OuterRef('pk'))[:1]
+    ).exclude(pk=OuterRef('pk')).values('pk')[:1]
 
     return queryset.annotate(
         _fold_cable_ref=RawSQL(_cable_ref_sql(), (), output_field=BigIntegerField()),
         _fold_cable_only=RawSQL(_cable_only_update_sql(), (), output_field=BooleanField()),
     ).annotate(
         fold_parent=Coalesce(
-            Subquery(repeat),
+            NullIf(Subquery(repeat), F('pk')),
             Case(
                 When(changed_object_type_id=termination_type.pk, then=cable_parent),
                 # Check for a cable in the set before the field diff, which reads the jsonb data.
