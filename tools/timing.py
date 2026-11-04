@@ -1,5 +1,5 @@
 """
-Time the plugin pages on a NetBox database. Read-only: the database session is set to
+Time the plugin pages (Pulse, Contributors, Activity, Chains) on a NetBox database. Read-only: the database session is set to
 read-only before the first query, the cache is off, and the script prints timings,
 counts and query plans only, with no names or values from the changelog.
 
@@ -35,7 +35,7 @@ from core.models import ObjectChange  # noqa: E402
 from netbox_changelog_insights import __version__  # noqa: E402
 from netbox_changelog_insights.filters import InsightsFilter  # noqa: E402
 from netbox_changelog_insights.insights import Insights, no_jit  # noqa: E402
-from netbox_changelog_insights.views import ChainsView, ContributorsView, PulseView  # noqa: E402
+from netbox_changelog_insights.views import ActivityView, ChainsView, ContributorsView, PulseView  # noqa: E402
 
 PLUGIN = 'netbox_changelog_insights'
 
@@ -96,8 +96,9 @@ def main():
 
     cases = [('7 days', {'period': 7}), ('30 days', {'period': 30}), ('90 days', {'period': 90}),
              ('full', {'period': 'custom', 'start': oldest.date().isoformat()})]
-    pages = (('pulse', 'pulse', PulseView), ('contributors', 'contributors', ContributorsView),
-             ('chains', 'chains', ChainsView))
+    pages = (('pulse', lambda i: i.pulse(), PulseView), ('contributors', lambda i: i.contributors(), ContributorsView),
+             ('activity', lambda i: i.activity_page('user', 'day' if i.flt.days <= 92 else 'week'), ActivityView),
+             ('chains', lambda i: i.chains(), ChainsView))
 
     print()
     print(f'Seconds per run ({args.repeat} runs). "data": aggregates only; "page": view with template.')
@@ -108,7 +109,7 @@ def main():
         for name, method, view in pages:
             insights = Insights(user, flt)
             try:
-                print(f'{label:8} {n:8} {name:13} data  {timed(getattr(insights, method), args.repeat)}', flush=True)
+                print(f'{label:8} {n:8} {name:13} data  {timed(lambda: method(insights), args.repeat)}', flush=True)
                 if not args.no_views:
                     runs = timed(lambda: view.as_view()(request('/', params)), args.repeat)
                     print(f'{label:8} {n:8} {name:13} page  {runs}', flush=True)

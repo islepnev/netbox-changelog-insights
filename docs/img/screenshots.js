@@ -11,6 +11,7 @@ const shots = [
   ['hero', '/plugins/changelog-insights/?period=90', 1280, 860],
   ['pulse', '/plugins/changelog-insights/?period=30', 1280, 860],
   ['contributors', '/plugins/changelog-insights/contributors/?period=90', 1280, 860],
+  ['activity', '/plugins/changelog-insights/activity/?period=90&by=user', 1280, 860],
   ['chains', '/plugins/changelog-insights/chains/?period=30&onboarding=1&kind=automation', 1280, 860],
 ];
 
