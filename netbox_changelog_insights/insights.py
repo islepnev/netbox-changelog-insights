@@ -167,6 +167,18 @@ class Insights:
         fold is evaluated once. Return {group: [row, ...]}; each row has the keys
         k1, k2, k3, k4, records, change_sets, create, update, delete, last_id, first_time.
         """
+        query, params = self.primary_groups_sql(names, limit)
+        keys = ('k1', 'k2', 'k3', 'k4', 'records', 'change_sets', 'create', 'update', 'delete', 'last_id',
+                'first_time')
+        out = {n: [] for n in names}
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            for row in cursor.fetchall():
+                out[row[0]].append(dict(zip(keys, row[1:])))
+        return out
+
+    def primary_groups_sql(self, names, limit=10):
+        """SQL text and parameters of primary_groups(); also for EXPLAIN in tools/timing.py."""
         # The inner query is Django's own SQL with its positional parameters; the group
         # queries follow it in text order, so their parameters follow the inner ones.
         sql, params = self.primary().values(*PRIMARY_COLUMNS).order_by().query.sql_with_params()
@@ -178,15 +190,7 @@ class Insights:
             text, needs = (group, ()) if isinstance(group, str) else group
             parts.append(f'({text.format(aggs=_AGGREGATES)})')
             params.extend(values[n] for n in needs)
-        query = f'WITH p AS MATERIALIZED ({sql}) ' + ' UNION ALL '.join(parts)
-        keys = ('k1', 'k2', 'k3', 'k4', 'records', 'change_sets', 'create', 'update', 'delete', 'last_id',
-                'first_time')
-        out = {n: [] for n in names}
-        with connection.cursor() as cursor:
-            cursor.execute(query, params)
-            for row in cursor.fetchall():
-                out[row[0]].append(dict(zip(keys, row[1:])))
-        return out
+        return f'WITH p AS MATERIALIZED ({sql}) ' + ' UNION ALL '.join(parts), params
 
     # Cache (design decision 1)
 
