@@ -2,11 +2,10 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.mixins import AccessMixin
 from django.http import Http404
 from django.shortcuts import render
 from django.views.generic import View
-
-from utilities.views import ContentTypePermissionRequiredMixin
 
 from . import charts
 from .filters import PERIODS, InsightsFilter, changeset_changelog_url
@@ -20,13 +19,23 @@ __all__ = (
 )
 
 
-class InsightsView(ContentTypePermissionRequiredMixin, View):
-    """Base view: the same permission as the core changelog (design decision 7)."""
+class InsightsView(AccessMixin, View):
+    """
+    Base view: the same permission as the core changelog (design decision 7). NetBox's
+    permission backend answers has_perm(), so LOGIN_REQUIRED, EXEMPT_VIEW_PERMISSIONS
+    and object permissions apply as in core views.
+    """
     template_name = None
     viewname = None
+    permission = 'core.view_objectchange'
 
-    def get_required_permission(self):
-        return 'core.view_objectchange'
+    def dispatch(self, request, *args, **kwargs):
+        user = request.user
+        if getattr(settings, 'LOGIN_REQUIRED', True) and not user.is_authenticated:
+            return self.handle_no_permission()
+        if not user.has_perm(self.permission):
+            return self.handle_no_permission()
+        return super().dispatch(request, *args, **kwargs)
 
     def user_filter_url(self, flt, u, viewname=None):
         """Link to this page (or viewname) filtered by one user."""
@@ -70,6 +79,7 @@ class PulseView(InsightsView):
         contributors = 'plugins:netbox_changelog_insights:contributors'
         context.update({
             'contributors_url': flt.url(contributors),
+            'action_urls': {a: flt.changelog_url(action=a) for a in ('create', 'update', 'delete')},
             'person_url': flt.url(contributors, kind='person'),
             'automation_url': flt.url(contributors, kind='automation'),
             'pulse': pulse,

@@ -27,6 +27,9 @@ from datetime import datetime, timedelta, timezone
 # disconnects it (CabledObjectModel.set_cable_termination(), NetBox 4.6).
 CABLE_FIELDS = {'cable', 'cable_end', 'cable_connector', 'cable_positions'}
 
+# Fields of a device or virtual machine that point to its primary IP addresses.
+PRIMARY_IP_FIELDS = {'primary_ip4', 'primary_ip6', 'oob_ip'}
+
 # Fields that ObjectChange.diff() ignores, plus keys that start with "_".
 DIFF_EXCLUDE = {'created', 'last_updated', 'level', 'lft', 'rght', 'tree_id'}
 
@@ -155,6 +158,7 @@ def fold(changeset, ct_by_id, rules):
       repeat   a record for an object whose main record (create, delete, first update) is another one
       cable    a cable termination, when a cable record is in the set
       cablef   an update that changes only cable fields, when a cable record is in the set
+      primaryip a device or VM update of primary IP fields only, when that IP address has a record in the set
       related  the related object has a record in the set
       module   a component whose module has a create or delete record in the set
     """
@@ -185,6 +189,15 @@ def fold(changeset, ct_by_id, rules):
                 parent = cable_by_id.get(post) or cable_by_id.get(pre) or cables[0]
                 folded[r['id']] = ('cablef', parent['id'])
                 continue
+        if 'primaryip' in rules and r['action'] == 'update' \
+                and r['changed_object_type'] in ('dcim.device', 'virtualization.virtualmachine'):
+            keys = diff_keys(r)
+            if keys and keys <= PRIMARY_IP_FIELDS:
+                refs = {(r['prechange_data'] or {}).get(k) for k in keys} | {(r['postchange_data'] or {}).get(k) for k in keys}
+                ips = [by_obj[('ipam.ipaddress', i)] for i in refs if ('ipam.ipaddress', i) in by_obj]
+                if ips:
+                    folded[r['id']] = ('primaryip', ips[0]['id'])
+                    continue
         if 'related' in rules:
             rel = related_of(r, ct_by_id)
             if rel and rel in by_obj and by_obj[rel]['id'] != r['id']:
@@ -310,6 +323,7 @@ def main():
         'design (repeat off)': ('cable', 'cablef', 'related'),
         'design + repeat': ('repeat', 'cable', 'cablef', 'related'),
         'design + repeat + module': ('repeat', 'cable', 'cablef', 'related', 'module'),
+        'design + repeat + primary ip': ('repeat', 'cable', 'cablef', 'primaryip', 'related'),
     }
     results = {}
     for name, rules in rule_sets.items():
@@ -332,9 +346,9 @@ def main():
         ))
     table(out, ['rule set', 'folded', 'share', 'by rule', 'sets with 0 primaries'], rows)
 
-    main_set = results['design + repeat']
+    main_set = results['design + repeat + primary ip']
     rec_by_id = {r['id']: r for r in records}
-    out.append('## 4. Folded records by rule, type and action ("design + repeat")')
+    out.append('## 4. Folded records by rule, type and action ("design + repeat + primary ip")')
     out.append('')
     c = Counter((v[0], rec_by_id[k]['changed_object_type'], rec_by_id[k]['action'],
                  rec_by_id[v[1]]['changed_object_type'], rec_by_id[v[1]]['action'])
@@ -375,7 +389,7 @@ def main():
         table(out, ['records (type:action x count)', 'sets'], c.most_common(10))
 
     # 7. What stays primary in sets with several primaries
-    out.append('## 7. Sets with more than one primary record ("design + repeat")')
+    out.append('## 7. Sets with more than one primary record ("design + repeat + primary ip")')
     out.append('')
     hist = Counter()
     sig = Counter()
@@ -423,8 +437,7 @@ def main():
             if r['action'] != 'update':
                 continue
             keys = diff_keys(r)
-            c[(r['changed_object_type'], ','.join(sorted(keys)) if len(keys) <= 6 else f'{len(keys)} fields',
-               others)] += 1
+            c[(r['changed_object_type'], ','.join(sorted(keys)), others)] += 1
     table(out, ['type', 'changed fields', 'primary records in set (type:action)', 'records'],
           [(*k, n) for k, n in c.most_common(25)])
 

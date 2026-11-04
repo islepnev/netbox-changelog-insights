@@ -1,27 +1,30 @@
 """Aggregates over the core changelog for the Pulse and Contributors pages."""
+import contextlib
 import hashlib
 from collections import defaultdict
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import Count, Max, Min, Q
-from django.db.models.functions import TruncDate
 
 from core.models import ObjectChange
 from netbox.plugins import get_plugin_config
 
+from . import __version__
 from .filters import KIND_AUTOMATION, KIND_PERSON, changeset_changelog_url, local_tz
 from .folding import annotate_fold
+from .labels import type_label
 
 __all__ = (
     'Insights',
 )
 
 ACTIONS = ('create', 'update', 'delete')
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 PRIMARY_COLUMNS = (
     'id', 'request_id', 'time', 'user_id', 'user_name', 'action', 'changed_object_type_id', 'changed_object_id',
 )
@@ -43,21 +46,40 @@ _GROUPS = {
     'object': (
         "SELECT * FROM (SELECT 'object', changed_object_type_id, NULL::text, changed_object_id, NULL::date, {aggs} "
         "FROM p GROUP BY changed_object_type_id, changed_object_id "
-        "ORDER BY count(DISTINCT request_id) DESC, count(*) DESC, max(id) DESC LIMIT %(limit)s) AS o"
+        "ORDER BY count(DISTINCT request_id) DESC, count(*) DESC, max(id) DESC LIMIT %s) AS o",
+        ('limit',),
     ),
     'recent': (
         "SELECT * FROM (SELECT 'recent', min(id), request_id::text, NULL::bigint, NULL::date, {aggs} "
-        "FROM p GROUP BY request_id ORDER BY min(time) DESC LIMIT %(limit)s) AS r"
+        "FROM p GROUP BY request_id ORDER BY min(time) DESC LIMIT %s) AS r",
+        ('limit',),
     ),
     'user_type': (
         "SELECT 'user_type', user_id, user_name, changed_object_type_id, NULL::date, {aggs} "
         "FROM p GROUP BY user_id, user_name, changed_object_type_id"
     ),
     'user_week': (
-        "SELECT 'user_week', user_id, user_name, NULL::bigint, date_trunc('week', time AT TIME ZONE %(tz)s)::date, {aggs} "
-        "FROM p GROUP BY user_id, user_name, date_trunc('week', time AT TIME ZONE %(tz)s)::date"
+        "SELECT 'user_week', user_id, user_name, NULL::bigint, date_trunc('week', time AT TIME ZONE %s)::date, {aggs} "
+        "FROM p GROUP BY 2, 3, 5",
+        ('tz',),
+    ),
+    'day': (
+        "SELECT 'day', NULL::bigint, NULL::text, NULL::bigint, (time AT TIME ZONE %s)::date, {aggs} FROM p GROUP BY 5",
+        ('tz',),
     ),
 }
+
+
+@contextlib.contextmanager
+def no_jit():
+    """
+    Run the fold queries without PostgreSQL JIT. Their correlated subqueries get a high
+    cost estimate, which starts JIT compilation; that costs more than the query itself
+    (EXPLAIN ANALYZE, 7 days: 50 ms execution, 657 ms JIT).
+    """
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute('SET LOCAL jit = off')
+        yield
 
 
 def _action_counts():
@@ -79,6 +101,8 @@ class Insights:
         self.flt = flt
         self.tz = local_tz()
         self.scope = ObjectChange.objects.restrict(user, 'view')
+        if flt.kind:
+            flt.kind_user_ids = self.kind_user_ids()
 
     # Actor kind (design decision 4)
 
@@ -91,6 +115,16 @@ class Insights:
         if not name:
             return None
         return set(get_user_model().objects.filter(groups__name=name).values_list('pk', flat=True))
+
+    def kind_user_ids(self):
+        """Ids of the users of the selected kind, for links to the core changelog."""
+        ids = self.automation_user_ids()
+        if ids is None or not self.flt.kind:
+            return None
+        if self.flt.kind == KIND_AUTOMATION:
+            return sorted(ids)
+        people = self.scope.filter(time__gte=self.flt.start, time__lt=self.flt.end, user_id__isnull=False)
+        return sorted(set(people.values_list('user_id', flat=True).distinct()) - ids)
 
     @staticmethod
     def kind_of(user_id, automation_ids):
@@ -131,22 +165,23 @@ class Insights:
         fold is evaluated once. Return {group: [row, ...]}; each row has the keys
         k1, k2, k3, k4, records, change_sets, create, update, delete, last_id, first_time.
         """
+        # The inner query is Django's own SQL with its positional parameters; the group
+        # queries follow it in text order, so their parameters follow the inner ones.
         sql, params = self.primary().values(*PRIMARY_COLUMNS).order_by().query.sql_with_params()
-        # The outer query uses named parameters: escape literal "%" and rename the inner "%s".
-        sql = sql.replace('%', '%%').replace('%%s', '%s')
-        parts = [_GROUPS[n].format(aggs=_AGGREGATES) for n in names]
-        named = {'limit': limit, 'tz': str(self.tz)}
-        # Mixed parameter styles are not allowed: convert the inner positional ones to named.
-        inner = {}
-        for i, value in enumerate(params):
-            inner[f'p{i}'] = value
-            sql = sql.replace('%s', f'%(p{i})s', 1)
-        query = f'WITH p AS MATERIALIZED ({sql}) ' + ' UNION ALL '.join(f'({part})' for part in parts)
+        values = {'limit': limit, 'tz': str(self.tz)}
+        params = list(params)
+        parts = []
+        for name in names:
+            group = _GROUPS[name]
+            text, needs = (group, ()) if isinstance(group, str) else group
+            parts.append(f'({text.format(aggs=_AGGREGATES)})')
+            params.extend(values[n] for n in needs)
+        query = f'WITH p AS MATERIALIZED ({sql}) ' + ' UNION ALL '.join(parts)
         keys = ('k1', 'k2', 'k3', 'k4', 'records', 'change_sets', 'create', 'update', 'delete', 'last_id',
                 'first_time')
         out = {n: [] for n in names}
         with connection.cursor() as cursor:
-            cursor.execute(query, {**inner, **named})
+            cursor.execute(query, params)
             for row in cursor.fetchall():
                 out[row[0]].append(dict(zip(keys, row[1:])))
         return out
@@ -157,8 +192,12 @@ class Insights:
         ttl = get_plugin_config('netbox_changelog_insights', 'cache_ttl') or 0
         if ttl <= 0:
             return func()
+        # Cached values hold plain data only, and the key names both versions, so that an
+        # upgrade never reads values that an older version wrote. Superusers share entries.
         params = sorted(self.flt.params().items())
-        key = f'{name}|{self.user.pk}|{self.flt.start.isoformat()}|{self.flt.end.isoformat()}|{params}'
+        who = 'superuser' if self.user.is_superuser else self.user.pk
+        versions = f'{__version__}|{getattr(settings, "VERSION", "")}'
+        key = f'{name}|{versions}|{who}|{self.flt.start.isoformat()}|{self.flt.end.isoformat()}|{params}'
         key = f'changelog_insights:{CACHE_VERSION}:' + hashlib.sha256(key.encode()).hexdigest()
         value = cache.get(key)
         if value is None:
@@ -172,12 +211,16 @@ class Insights:
         return self.scope.aggregate(t=Min('time'))['t']
 
     def pulse(self):
-        return self._cached('pulse', self._pulse)
+        return self._cached('pulse', self._pulse_no_jit)
+
+    def _pulse_no_jit(self):
+        with no_jit():
+            return self._pulse()
 
     def _pulse(self):
         records = self.records()
         automation_ids = self.automation_user_ids()
-        groups = self.primary_groups(('total', 'user', 'type', 'object', 'recent'))
+        groups = self.primary_groups(('total', 'user', 'type', 'object', 'recent', 'day'))
 
         totals = records.aggregate(
             records=Count('pk'),
@@ -204,7 +247,7 @@ class Insights:
             'top_users': users[:10],
             'top_types': self._top_types(groups['type']),
             'top_objects': self._top_objects(groups['object']),
-            'daily': self._daily(records),
+            'daily': self._daily(groups['day']),
             'recent': self._recent(groups['recent']),
         }
 
@@ -246,7 +289,7 @@ class Insights:
         types = ContentType.objects.in_bulk([r['k1'] for r in rows])
         for r in rows:
             r['changed_object_type_id'] = r['k1']
-            r['type'] = types.get(r['k1'])
+            r['type_label'] = type_label(types.get(r['k1']))
             r['changelog_url'] = self.flt.changelog_url(changed_object_type_id=r['k1'])
         return rows
 
@@ -255,7 +298,7 @@ class Insights:
         types = ContentType.objects.in_bulk([r['k1'] for r in rows])
         for r in rows:
             rec = last.get(r['last_id'])
-            r['type'] = types.get(r['k1'])
+            r['type_label'] = type_label(types.get(r['k1']))
             r['repr'] = rec.object_repr if rec else ''
             r['deleted'] = rec is not None and rec.action == 'delete'
             r['object_url'] = None
@@ -266,13 +309,9 @@ class Insights:
             r['changelog_url'] = self.flt.changelog_url(changed_object_type_id=r['k1'], changed_object_id=r['k3'])
         return rows
 
-    def _daily(self, records):
-        """Change sets per day in TIME_ZONE, every day of the period."""
-        rows = records.annotate(day=TruncDate('time', tzinfo=self.tz)).values('day').annotate(
-            change_sets=Count('request_id', distinct=True),
-            records=Count('pk'),
-        ).order_by('day')
-        by_day = {r['day']: r for r in rows}
+    def _daily(self, rows):
+        """Change sets and primary changes per day in TIME_ZONE, every day of the period."""
+        by_day = {r['k4']: r for r in rows}
         days = []
         d = self.flt.start_date
         while d <= self.flt.end_date:
@@ -291,13 +330,19 @@ class Insights:
         out = []
         for r in sorted(rows, key=lambda r: r['first_time'], reverse=True):
             records = totals.get(r['k2'], 0)
+            rec = first.get(r['k1'])
             out.append({
                 'request_id': r['k2'],
                 'time': r['first_time'],
                 'primary': r['records'],
                 'records': records,
                 'folded': records - r['records'],
-                'first': first.get(r['k1']),
+                'first': {
+                    'action': rec.action,
+                    'type_label': type_label(rec.changed_object_type, include_app=False),
+                    'repr': rec.object_repr,
+                    'user': rec.user.username if rec.user else rec.user_name,
+                } if rec else None,
                 'changelog_url': changeset_changelog_url(r['k2']),
             })
         return out
@@ -307,12 +352,17 @@ class Insights:
     def change_set(self, request_id):
         """All records of one change set, annotated with fold_parent, in record order."""
         qs = self.scope.filter(request_id=request_id).select_related('changed_object_type', 'user')
-        return list(annotate_fold(qs, self.scope).order_by('pk'))
+        with no_jit():
+            return list(annotate_fold(qs, self.scope).order_by('pk'))
 
     # Contributors
 
     def contributors(self):
-        return self._cached('contributors', self._contributors)
+        return self._cached('contributors', self._contributors_no_jit)
+
+    def _contributors_no_jit(self):
+        with no_jit():
+            return self._contributors()
 
     def _contributors(self):
         records = self.records()
@@ -355,7 +405,7 @@ class Insights:
             top = sorted(types[key].items(), key=lambda kv: -kv[1])[:3]
             u['top_types'] = [
                 {
-                    'type': ct.get(t), 'records': n,
+                    'type_label': type_label(ct.get(t), include_app=False), 'records': n,
                     'changelog_url': self._user_changelog_url(u, changed_object_type_id=t),
                 }
                 for t, n in top
