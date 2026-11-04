@@ -104,7 +104,7 @@ class ContributorsView(InsightsView):
         peak = max((max(u['weekly'], default=0) for u in data['users']), default=0)
         for u in data['users']:
             u['filter_url'] = self.user_filter_url(flt, u, 'plugins:netbox_changelog_insights:pulse')
-            u['sparkline'] = charts.sparkline(u['weekly'], peak, data['weeks'])
+            u['sparkline'] = charts.sparkline(u['weekly'], peak, data['weeks'], flt.start_date, flt.end_date)
         context = self.base_context(request, flt, insights)
         context.update(data)
         context['kind_urls'] = {

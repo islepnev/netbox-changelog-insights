@@ -20,6 +20,8 @@ class ChangelogInsightsConfig(PluginConfig):
         'chain_gap_hours': 7 * 24,
         # Chains: longest gap that a change set of an automation account may bridge, in hours.
         'automation_gap_hours': 24,
+        # Longest period of a page, in days; a longer period keeps its last days. None: no limit.
+        'max_period_days': None,
     }
 
 

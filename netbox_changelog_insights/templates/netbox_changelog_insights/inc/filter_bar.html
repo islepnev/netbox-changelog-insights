@@ -4,6 +4,11 @@
     {% trans "Some filter values are not valid and were ignored" %}: {% for name, errors in flt.errors.items %}<strong>{{ name }}</strong> ({{ errors|join:" " }}){% if not forloop.last %}, {% endif %}{% endfor %}.
   </div></div>
 {% endif %}
+{% if flt.cut_from %}
+  <div class="alert alert-info mb-3" role="alert"><div>
+    {% blocktrans with n=flt.days asked=flt.cut_from|date:"Y-m-d" start=flt.start_date|date:"Y-m-d" %}The period is limited to {{ n }} days (setting max_period_days). It starts on {{ start }}, not on {{ asked }}.{% endblocktrans %}
+  </div></div>
+{% endif %}
 <div class="card mb-3">
   <div class="card-body py-2">
     <form method="get" class="d-flex flex-wrap align-items-center gap-2" action="">
