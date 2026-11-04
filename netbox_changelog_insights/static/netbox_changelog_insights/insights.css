@@ -1,5 +1,10 @@
 /* Changelog Insights. Colors come from the NetBox (Tabler) theme variables. */
-.insights-bars { display: flex; align-items: flex-end; gap: 2px; height: 140px; }
+/* Plot: a gutter on the left holds the peak value, which labels the top grid line; a second line marks half. */
+.insights-plot { position: relative; padding-left: 3rem; margin-top: .75rem; }
+.insights-peak { position: absolute; left: 0; width: 2.5rem; top: -.45rem; text-align: right; font-size: .75rem; line-height: 1; color: var(--tblr-secondary); }
+.insights-bars { display: flex; align-items: flex-end; gap: 2px; height: 140px;
+  background: linear-gradient(var(--tblr-border-color), var(--tblr-border-color)) top / 100% 1px no-repeat,
+              linear-gradient(var(--tblr-border-color), var(--tblr-border-color)) center / 100% 1px no-repeat; }
 .insights-bar { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; min-width: 2px; }
 .insights-bar:hover { background: var(--tblr-active-bg, rgba(0, 0, 0, .05)); }
 .insights-bar.weekend { background: var(--tblr-bg-surface-secondary, rgba(0, 0, 0, .03)); }

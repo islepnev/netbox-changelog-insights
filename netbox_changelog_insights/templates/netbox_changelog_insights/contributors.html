@@ -31,10 +31,10 @@
             <th class="text-end">{% trans "Created" %}</th>
             <th class="text-end">{% trans "Updated" %}</th>
             <th class="text-end">{% trans "Deleted" %}</th>
-            <th class="text-end d-none d-xl-table-cell" title="{% trans 'All records, folded included' %}">{% trans "Records" %}</th>
+            <th class="text-end d-none d-xl-table-cell" title="{% trans 'Primary changes and the records folded into them' %}">{% trans "All records" %}</th>
             <th title="{% trans 'Change sets per day (periods up to 31 days) or per week; pale: a week that the period covers in part' %}">{% trans "Trend" %}</th>
             <th>{% trans "Top types" %}</th>
-            <th>{% trans "First / last change" %}</th>
+            <th>{% trans "Last change" %}</th>
           </tr>
         </thead>
         <tbody>
@@ -50,10 +50,7 @@
               <td class="small">
                 {% for t in u.top_types %}<div class="text-nowrap"><a href="{{ t.changelog_url }}" class="text-reset">{{ t.type_label }}</a> <span class="text-secondary">{{ t.records }}</span></div>{% endfor %}
               </td>
-              <td class="text-nowrap small">
-                <div title="{{ u.first|date:'Y-m-d H:i' }}">{{ u.first|date:"Y-m-d" }}</div>
-                <div title="{{ u.last|date:'Y-m-d H:i' }}">{{ u.last|date:"Y-m-d" }}</div>
-              </td>
+              <td class="text-nowrap small" title="{% trans 'First change' %}: {{ u.first|date:'Y-m-d H:i' }}&#10;{% trans 'Last change' %}: {{ u.last|date:'Y-m-d H:i' }}">{{ u.last|date:"Y-m-d" }}</td>
             </tr>
           {% empty %}
             <tr><td colspan="9" class="text-secondary text-center py-4">{% trans "No changes in this period" %}</td></tr>
@@ -62,6 +59,6 @@
       </table>
     </div>
   </div>
-  <div class="small text-secondary mt-2">{% trans "First and last change: over the whole changelog. Other columns: the selected period." %}
+  <div class="small text-secondary mt-2">{% trans "Last change: over the whole changelog. Other columns: the selected period." %}
     {% trans "Numbers link to the core changelog, which cannot filter by fold: it also lists the folded records." %}</div>
 {% endblock %}

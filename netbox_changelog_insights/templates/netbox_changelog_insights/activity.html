@@ -36,10 +36,11 @@
             <span class="insights-legend-item">
               <span class="insights-swatch {{ g.css }}"></span>
               {% if g.filter_url %}<a href="{{ g.filter_url }}" class="text-reset">{{ g.label|default:"—" }}</a>{% elif g.key == 'other' %}{% blocktrans with n=g.count %}Other ({{ n }}){% endblocktrans %}{% else %}{{ g.label|default:"—" }}{% endif %}
-              <span class="text-secondary">{{ g.total }}</span>
             </span>
           {% endfor %}
         </div>
+        <div class="insights-plot">
+        <span class="insights-peak">{{ chart.peak }}</span>
         <div class="insights-bars insights-stack" role="img" aria-label="{% trans 'Primary changes per bucket, stacked by group; the table below holds the totals' %}">
           {% for b in chart.bars %}
             <div class="insights-bar{% if b.weekend %} weekend{% endif %}{% if b.partial %} partial{% endif %}" title="{% if bucket == 'day' %}{{ b.start|date:'D, Y-m-d' }}{% else %}{% trans 'Week of' %} {{ b.start|date:'Y-m-d' }}{% if b.partial %} ({% blocktrans with n=b.days %}{{ n }} of 7 days in the period{% endblocktrans %}){% endif %}{% endif %}&#10;{{ b.total }} {% trans 'primary changes' %}, {{ b.change_sets }} {% trans 'change sets' %}{% for s in b.segments reversed %}&#10;{{ s.label|default:_('Other') }}: {{ s.value }}{% endfor %}">
@@ -52,11 +53,10 @@
         <div class="insights-ticks small text-secondary">
           {% for b in chart.bars %}<div>{{ b.tick }}</div>{% endfor %}
         </div>
-        <div class="small text-secondary mt-2">
-          {% blocktrans with n=chart.peak %}Peak: {{ n }}.{% endblocktrans %}
-          {% if bucket == 'week' %}{% trans "Weeks start on Monday; a first or last week that the period covers in part is lighter." %}{% endif %}
-          {% if by == 'user' or by == 'model' or by == 'action' %}{% trans "Click a group to filter by it." %}{% endif %}
         </div>
+        {% if bucket == 'week' and chart.has_partial %}
+          <div class="small text-secondary mt-2">{% trans "A first or last week that the period covers in part is lighter." %}</div>
+        {% endif %}
       {% else %}
         <div class="text-secondary text-center py-4">{% trans "No changes in this period" %}</div>
       {% endif %}
@@ -76,7 +76,7 @@
       </div>
     </div>
     <div class="col-xl-4">
-      <div class="card h-100">
+      <div class="card">
         <div class="card-header"><h2 class="card-title">{% trans "Totals" %}</h2></div>
         <div class="table-responsive">
           <table class="table table-sm card-table mb-0">

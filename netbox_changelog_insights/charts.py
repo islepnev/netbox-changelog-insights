@@ -90,7 +90,7 @@ def stacked_chart(data, by, ticks=6):
             'tick': date_format(b['start'], 'M j') if i % step == 0 else '',
             'weekend': b['full_days'] == 1 and b['start'].weekday() >= 5,
         })
-    return {'bars': bars, 'peak': peak, 'groups': groups}
+    return {'bars': bars, 'peak': peak, 'groups': groups, 'has_partial': any(b['partial'] for b in bars)}
 
 
 def heatmap(grid):

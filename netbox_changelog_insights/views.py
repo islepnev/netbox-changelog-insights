@@ -13,7 +13,7 @@ from netbox.plugins import get_plugin_config
 from . import charts
 from .filters import PERIODS, InsightsFilter, changeset_changelog_url
 from .folding import fold_tree
-from .insights import Insights
+from .insights import TREND_DAYS_MAX, Insights
 
 __all__ = (
     'ActivityView',
@@ -187,7 +187,7 @@ class ActivityView(InsightsView):
         by = request.GET.get('by')
         by = by if by in dict(self.dimensions) else 'action'
         bucket = request.GET.get('bucket')
-        bucket = bucket if bucket in ('day', 'week') else ('day' if flt.days <= 92 else 'week')
+        bucket = bucket if bucket in ('day', 'week') else ('day' if flt.days <= TREND_DAYS_MAX else 'week')
         insights = Insights(request.user, flt)
         data = insights.activity_page(by, bucket)
         chart = charts.stacked_chart(data, by)
