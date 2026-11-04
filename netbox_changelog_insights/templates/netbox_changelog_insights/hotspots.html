@@ -1,0 +1,85 @@
+{% extends 'generic/_base.html' %}
+{% load i18n insights %}
+
+{% block title %}{% trans "Hotspots" %}{% endblock %}
+{% block head %}{% include 'netbox_changelog_insights/inc/head.html' %}{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary">{% trans "Most changed objects and fields. Counts are primary changes; side effects are folded." %}</div>
+{% endblock %}
+
+{% block tabs %}{% include 'netbox_changelog_insights/inc/tabs.html' with active='hotspots' %}{% endblock %}
+
+{% block content %}
+  {% include 'netbox_changelog_insights/inc/filter_bar.html' %}
+  <div class="row row-cards">
+    <div class="col-xl-7">
+      <div class="card h-100">
+        <div class="card-header"><h2 class="card-title">{% trans "Most changed objects" %}</h2></div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover card-table mb-0 insights-compact">
+            <thead>
+              <tr>
+                <th>{% trans "Object" %}</th>
+                <th class="text-end" title="{% trans 'Change sets with a primary change of the object' %}">{% trans "Sets" %}</th>
+                <th class="text-end">{% trans "Updates" %}</th>
+                <th class="text-end">{% trans "Users" %}</th>
+                <th>{% trans "Last change" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for o in objects %}
+                <tr>
+                  <td>
+                    {% if o.object_url %}<a href="{{ o.object_url }}">{{ o.repr }}</a>{% elif o.deleted %}<span class="text-decoration-line-through text-secondary">{{ o.repr }}</span>{% else %}{{ o.repr }}{% endif %}
+                    {% if o.parent %}<span class="text-secondary">· {{ o.parent }}</span>{% endif %}
+                    <div class="small"><a href="{{ o.filter_url }}" class="text-secondary">{{ o.type_label }}</a></div>
+                  </td>
+                  <td class="text-end"><a href="{{ o.changelog_url }}">{{ o.change_sets }}</a></td>
+                  <td class="text-end">{{ o.updates }}</td>
+                  <td class="text-end">{{ o.users }}</td>
+                  <td class="text-nowrap small text-secondary">{{ o.last|date:"Y-m-d H:i" }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="5" class="text-secondary text-center py-4">{% trans "No changes in this period" %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl-5">
+      <div class="card h-100">
+        <div class="card-header"><h2 class="card-title">{% trans "Most changed fields" %}</h2></div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover card-table mb-0 insights-compact">
+            <thead>
+              <tr>
+                <th>{% trans "Field" %}</th>
+                <th class="text-end" title="{% trans 'Primary updates that changed the field' %}">{% trans "Updates" %}</th>
+                <th class="text-end">{% trans "Objects" %}</th>
+                <th class="text-end">{% trans "Users" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for f in fields %}
+                <tr>
+                  <td>
+                    <a href="{{ f.changes_url }}"><code>{{ f.field }}</code></a>
+                    <div class="small"><a href="{{ f.filter_url }}" class="text-secondary">{{ f.type_label }}</a></div>
+                  </td>
+                  <td class="text-end"><a href="{{ f.changes_url }}">{{ f.updates }}</a></td>
+                  <td class="text-end">{{ f.objects }}</td>
+                  <td class="text-end">{{ f.users }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="4" class="text-secondary text-center py-4">{% trans "No updates in this period" %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="small text-secondary mt-2">{% trans "Fields: as in the changelog diff, without created, last_updated, tree fields and keys that start with _. Click a field to list its changes." %}</div>
+{% endblock %}

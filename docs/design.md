@@ -60,7 +60,7 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 | Chains | Chains per device or VM: onboarding filter, stages, duration, users; click shows the change sets | L |
 | Activity | Series over time grouped by one dimension (user, app, model, action); weekday × hour heatmap (done) | M |
 | Actor kind | Person/automation split on all pages | S |
-| Hotspots | Most changed objects; most changed fields per model | M |
+| Hotspots | Most changed objects; most changed fields per model; values before and after per field (done) | M |
 | API | Aggregates over REST for Grafana: `activity/` by day, week, user, type; Grafana row in `docs/grafana-row.json` (done) | S |
 | Scope | Grouping by site and tenant, resolved from object data or the related object | L |
 
@@ -70,4 +70,4 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 
 ## Open questions
 
-- Whether aggregates over long periods stay fast without rollup tables: measure with `tools/timing.py`; `max_period_days` bounds long periods.
+- Aggregates over long periods without rollup tables: measured with `tools/timing.py`. The fold takes most of the time (correlated subqueries per record); up to 90 days the pages stay within seconds and the cache serves repeats, long periods are slower: set `max_period_days`. The test "changes only cable (or primary IP) fields" compares those fields first and scans the other keys only when one of them changed, which halves the fold. A fold once per change set with window functions gave the same primary records but was not faster, and was dropped.
