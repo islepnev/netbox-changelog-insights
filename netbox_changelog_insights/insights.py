@@ -1,6 +1,7 @@
 """Aggregates over the core changelog for the Pulse and Contributors pages."""
 import contextlib
 import hashlib
+import statistics
 from collections import defaultdict
 from datetime import timedelta
 
@@ -16,6 +17,7 @@ from netbox.plugins import get_plugin_config
 
 from . import __version__
 from .filters import KIND_AUTOMATION, KIND_PERSON, changeset_changelog_url, local_tz
+from .chains import DEVICE, STAGES, build_chains
 from .folding import annotate_fold
 from .labels import type_label
 
@@ -354,6 +356,114 @@ class Insights:
         qs = self.scope.filter(request_id=request_id).select_related('changed_object_type', 'user')
         with no_jit():
             return list(annotate_fold(qs, self.scope).order_by('pk'))
+
+    # Chains (design decision 11)
+
+    def chains(self, limit=100):
+        return self._cached(f'chains{limit}', lambda: self._chains_no_jit(limit))
+
+    def _chains_no_jit(self, limit):
+        with no_jit():
+            return self._chains(limit)
+
+    def _chains(self, limit):
+        flt = self.flt
+        chain_gap = timedelta(hours=get_plugin_config('netbox_changelog_insights', 'chain_gap_hours', 7 * 24))
+        automation_gap = timedelta(hours=get_plugin_config('netbox_changelog_insights', 'automation_gap_hours', 24))
+        automation_ids = self.automation_user_ids() or set()
+        # Read from chain_gap before the period: a chain may begin before it.
+        records = self.scope.filter(time__gte=flt.start - chain_gap, time__lt=flt.end)
+        primary_ids = set(annotate_fold(records, self.scope).filter(fold_parent__isnull=True).values_list('pk', flat=True))
+        chains, resolver = build_chains(records, primary_ids, self.scope, automation_ids, chain_gap, automation_gap)
+
+        def keep(c):
+            if c.end < flt.start:
+                return False
+            if flt.onboarding and not c.onboarding:
+                return False
+            ids = {cs['user_id'] for cs in c.sets}
+            names = {cs['user'] for cs in c.sets if cs['user_id'] is None}
+            if flt.user_id and flt.user_id not in ids:
+                return False
+            if flt.user_name and flt.user_name not in names:
+                return False
+            if flt.kind == KIND_AUTOMATION and not ids & automation_ids:
+                return False
+            if flt.kind == KIND_PERSON and not (ids - automation_ids or names):
+                return False
+            return True
+
+        chains = sorted((c for c in chains if keep(c)), key=lambda c: c.start, reverse=True)
+        onboarding = [c for c in chains if c.onboarding]
+        multi = [c for c in chains if len(c.sets) > 1]
+        summary = {
+            'chains': len(chains),
+            'multi': len(multi),
+            'onboarding': len(onboarding),
+            'onboarding_median': statistics.median(c.duration.total_seconds() for c in onboarding) if onboarding else None,
+            'mixed': sum(1 for c in chains if {cs['user_id'] in automation_ids for cs in c.sets} == {True, False}),
+        }
+        shown = chains[:limit]
+        labels = self._root_labels([c.root for c in shown])
+        stage_labels = dict(STAGES)
+        device_type = resolver.ct_id.get(DEVICE)
+        rows = []
+        for c in shown:
+            label = labels.get(c.root, {})
+            users = []
+            for cs in c.sets:
+                if cs['user'] not in [u['name'] for u in users]:
+                    users.append({'name': cs['user'], 'automation': cs['user_id'] in automation_ids})
+            rows.append({
+                'key': f'{c.root[0]}-{c.root[1]}-{int(c.start.timestamp())}',
+                'root_kind': 'device' if c.root[0] == device_type else 'virtual machine',
+                'root_repr': label.get('repr') or f'#{c.root[1]}',
+                'root_url': label.get('url'),
+                'start': c.start,
+                'end': c.end,
+                'duration': c.duration.total_seconds(),
+                'change_sets': len(c.sets),
+                'records': c.records,
+                'onboarding': c.onboarding,
+                'users': users,
+                'stages': [{'key': s, 'label': stage_labels[s]} for s in c.stages],
+                'sets': [
+                    {
+                        'request_id': str(cs['request_id']),
+                        'time': cs['time'],
+                        'user': cs['user'],
+                        'automation': cs['user_id'] in automation_ids,
+                        'records': len(cs['records'][c.root]),
+                        'stages': [stage_labels[s] for s in sorted(cs['stages'][c.root], key=[k for k, _ in STAGES].index)],
+                        'changelog_url': changeset_changelog_url(cs['request_id']),
+                    }
+                    for cs in c.sets[:200]
+                ],
+                # The object changelog of NetBox lists the root and its components.
+                'changelog_url': f"{label['url']}changelog/" if label.get('url') else None,
+            })
+        return {'summary': summary, 'chains': rows, 'shown': len(rows)}
+
+    def _root_labels(self, roots):
+        """Latest name and, if the object exists, the URL of each root."""
+        by_type = defaultdict(set)
+        for t, i in roots:
+            by_type[t].add(i)
+        out = {}
+        for t, ids in by_type.items():
+            latest = self.scope.filter(changed_object_type_id=t, changed_object_id__in=ids).values(
+                'changed_object_id').annotate(last=Max('pk')).order_by()
+            reprs = dict(ObjectChange.objects.filter(pk__in=[r['last'] for r in latest]).values_list(
+                'changed_object_id', 'object_repr'))
+            model = ContentType.objects.get_for_id(t).model_class()
+            objects = model.objects.in_bulk(ids) if model is not None else {}
+            for i in ids:
+                obj = objects.get(i)
+                out[(t, i)] = {
+                    'repr': str(obj) if obj is not None else reprs.get(i),
+                    'url': obj.get_absolute_url() if obj is not None and hasattr(obj, 'get_absolute_url') else None,
+                }
+        return out
 
     # Contributors
 

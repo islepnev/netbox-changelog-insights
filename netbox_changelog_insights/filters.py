@@ -52,6 +52,7 @@ class InsightsFilterForm(forms.Form):
         choices=[('', ''), (KIND_PERSON, _('Person')), (KIND_AUTOMATION, _('Automation'))],
         required=False,
     )
+    onboarding = forms.BooleanField(required=False)
 
 
 @dataclass
@@ -65,6 +66,7 @@ class InsightsFilter:
     type_id: int | None = None
     action: str | None = None
     kind: str | None = None
+    onboarding: bool = False
     errors: dict = field(default_factory=dict)
     # Ids of the users of the selected actor kind, for links to the core changelog.
     kind_user_ids: list | None = None
@@ -100,6 +102,7 @@ class InsightsFilter:
             type_id=data.get('type_id'),
             action=data.get('action') or None,
             kind=data.get('kind') or None,
+            onboarding=bool(data.get('onboarding')),
             errors=dict(form.errors) if not valid else {},
         )
 
@@ -141,6 +144,8 @@ class InsightsFilter:
         for key in ('user_id', 'user_name', 'type_id', 'action', 'kind'):
             if getattr(self, key):
                 p[key] = getattr(self, key)
+        if self.onboarding:
+            p['onboarding'] = 1
         for key, value in override.items():
             if value is None:
                 p.pop(key, None)

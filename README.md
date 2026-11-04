@@ -10,6 +10,7 @@ Target: NetBox 4.6 (`min_version` 4.6.0). No models, no migrations.
 
 - Pulse: change sets, records by action, primary changes, active users (people and automation), change sets per day, top users, top object types, most changed objects, recent change sets. Click a change set to show its folded records.
 - Contributors: per user, change sets, created, updated, deleted, weekly change sets, top types, first and last change.
+- Chains: change sets about one device or virtual machine over time (for example the onboarding of a server), with stages, duration and users. Click a chain to show its change sets.
 
 The unit is the change set: the records that share a `request_id`. Side effects fold into their cause (design decision 3); counts and rankings use primary changes. Every number links to the core changelog (`/core/changelog/`) with the same filter. The pages require `core.view_objectchange` and show only the records that the user may view. Days and weeks use NetBox `TIME_ZONE`.
 
@@ -27,6 +28,8 @@ PLUGINS_CONFIG = {
     'netbox_changelog_insights': {
         'automation_group': 'automation',  # user group of automation accounts; None: no split
         'cache_ttl': 300,                  # seconds; 0 disables the cache
+        'chain_gap_hours': 168,            # chains: longest gap between change sets on one device or VM
+        'automation_gap_hours': 24,        # chains: longest gap that automation alone may bridge
     },
 }
 ```

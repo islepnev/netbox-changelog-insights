@@ -17,6 +17,11 @@ menu = PluginMenu(
                 link_text='Contributors',
                 permissions=PERMISSIONS,
             ),
+            PluginMenuItem(
+                link='plugins:netbox_changelog_insights:chains',
+                link_text='Chains',
+                permissions=PERMISSIONS,
+            ),
         )),
     ),
 )

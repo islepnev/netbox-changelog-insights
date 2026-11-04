@@ -1,0 +1,100 @@
+{% extends 'generic/_base.html' %}
+{% load i18n insights %}
+
+{% block title %}{% trans "Chains" %}{% endblock %}
+{% block head %}{% include 'netbox_changelog_insights/inc/head.html' %}{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary">{% trans "Change sets about one device or virtual machine over time, for example the onboarding of a server." %}</div>
+{% endblock %}
+
+{% block tabs %}{% include 'netbox_changelog_insights/inc/tabs.html' with active='chains' %}{% endblock %}
+
+{% block content %}
+  {% include 'netbox_changelog_insights/inc/filter_bar.html' %}
+  <div class="row row-cards mb-3">
+    <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body">
+      <div class="subheader">{% trans "Chains" %}</div>
+      <div class="h1 mb-1">{{ summary.chains }}</div>
+      <div class="small text-secondary">{% blocktrans with n=summary.multi %}{{ n }} with two or more change sets{% endblocktrans %}</div>
+    </div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body">
+      <div class="subheader">{% trans "Onboarding" %}</div>
+      <div class="h1 mb-1"><a href="{{ onboarding_urls.onboarding }}" class="text-reset">{{ summary.onboarding }}</a></div>
+      <div class="small text-secondary">{% trans "Chains that start with a device or VM create" %}</div>
+    </div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body">
+      <div class="subheader">{% trans "Onboarding, median duration" %}</div>
+      <div class="h1 mb-1">{{ summary.onboarding_median|duration|default:"&mdash;" }}</div>
+      <div class="small text-secondary">{% trans "From the create to the last change set" %}</div>
+    </div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body">
+      <div class="subheader">{% trans "People and automation" %}</div>
+      <div class="h1 mb-1">{{ summary.mixed }}</div>
+      <div class="small text-secondary">{% if automation_group %}{% trans "Chains with both" %}{% else %}{% trans "Set automation_group to split people and automation." %}{% endif %}</div>
+    </div></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2 class="card-title">{% if shown < summary.chains %}{% blocktrans with n=shown m=summary.chains %}Latest {{ n }} of {{ m }} chains{% endblocktrans %}{% else %}{% blocktrans count n=summary.chains %}{{ n }} chain{% plural %}{{ n }} chains{% endblocktrans %}{% endif %}</h2>
+      <div class="card-actions d-flex gap-2">
+        <div class="btn-group">
+          <a href="{{ onboarding_urls.all }}" class="btn btn-sm {% if not flt.onboarding %}btn-primary{% else %}btn-outline-primary{% endif %}">{% trans "All chains" %}</a>
+          <a href="{{ onboarding_urls.onboarding }}" class="btn btn-sm {% if flt.onboarding %}btn-primary{% else %}btn-outline-primary{% endif %}">{% trans "Onboarding" %}</a>
+        </div>
+        {% if automation_group %}
+          <div class="btn-group">
+            <a href="{{ kind_urls.all }}" class="btn btn-sm {% if not flt.kind %}btn-primary{% else %}btn-outline-primary{% endif %}">{% trans "All" %}</a>
+            <a href="{{ kind_urls.person }}" class="btn btn-sm {% if flt.kind == 'person' %}btn-primary{% else %}btn-outline-primary{% endif %}">{% trans "People" %}</a>
+            <a href="{{ kind_urls.automation }}" class="btn btn-sm {% if flt.kind == 'automation' %}btn-primary{% else %}btn-outline-primary{% endif %}">{% trans "Automation" %}</a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm card-table mb-0">
+        <thead><tr>
+          <th style="width:1%"></th><th>{% trans "Device or VM" %}</th><th class="text-nowrap">{% trans "Started" %}</th>
+          <th class="text-end">{% trans "Duration" %}</th><th class="text-end" title="{% trans 'Change sets' %}">{% trans "Sets" %}</th>
+          <th class="text-end" title="{% trans 'Primary changes' %}">{% trans "Changes" %}</th><th>{% trans "Users" %}</th><th>{% trans "Stages" %}</th>
+        </tr></thead>
+        {% for c in chains %}
+          <tbody>
+            <tr class="insights-changeset-row" data-insights-toggle role="button" tabindex="0" aria-expanded="false" aria-controls="chain-{{ c.key }}">
+              <td><i class="mdi mdi-chevron-right insights-chevron" aria-hidden="true"></i></td>
+              <td class="text-nowrap">
+                {% if c.root_url %}<a href="{{ c.root_url }}">{{ c.root_repr }}</a>{% else %}<span class="text-secondary">{{ c.root_repr }}</span>{% endif %}
+                <div class="small text-secondary">{{ c.root_kind }}{% if c.onboarding %} &middot; {% trans "onboarding" %}{% endif %}</div>
+              </td>
+              <td class="text-nowrap">{{ c.start|date:"Y-m-d H:i" }}</td>
+              <td class="text-end text-nowrap" title="{{ c.start|date:'Y-m-d H:i' }} &ndash; {{ c.end|date:'Y-m-d H:i' }}">{{ c.duration|duration }}</td>
+              <td class="text-end">{{ c.change_sets }}</td>
+              <td class="text-end">{{ c.records }}</td>
+              <td class="small">{% for u in c.users|slice:":3" %}<span class="text-nowrap">{{ u.name }}{% if u.automation %} <i class="mdi mdi-robot-outline text-secondary" title="{% trans 'Automation' %}"></i>{% endif %}</span>{% if not forloop.last %}, {% endif %}{% endfor %}{% if c.users|length > 3 %} <span class="text-secondary">+{{ c.users|length|add:"-3" }}</span>{% endif %}</td>
+              <td>{% for s in c.stages|slice:":8" %}<span class="badge bg-{{ s.key|stage_color }}-lt me-1">{{ s.label }}</span>{% endfor %}{% if c.stages|length > 8 %}<span class="text-secondary">&hellip;</span>{% endif %}</td>
+            </tr>
+            <tr class="d-none" id="chain-{{ c.key }}"><td colspan="8" class="p-0">
+              <div class="insights-tree px-3 py-2">
+                <table class="table table-sm table-borderless mb-1"><tbody>
+                  {% for cs in c.sets %}
+                    <tr>
+                      <td class="text-nowrap" style="width:1%">{{ cs.time|date:"Y-m-d H:i" }}</td>
+                      <td class="text-nowrap" style="width:1%">{{ cs.user }}{% if cs.automation %} <i class="mdi mdi-robot-outline text-secondary"></i>{% endif %}</td>
+                      <td>{{ cs.stages|join:", " }}</td>
+                      <td class="text-end small text-nowrap">{% blocktrans count n=cs.records %}{{ n }} change{% plural %}{{ n }} changes{% endblocktrans %} &middot; <a href="{% url 'plugins:netbox_changelog_insights:changeset' request_id=cs.request_id %}">{% trans "change set" %}</a></td>
+                    </tr>
+                  {% endfor %}
+                </tbody></table>
+                {% if c.changelog_url %}<div class="small"><a href="{{ c.changelog_url }}">{% trans "Changelog of this object and its components" %}</a></div>{% endif %}
+              </div>
+            </td></tr>
+          </tbody>
+        {% empty %}
+          <tbody><tr><td colspan="8" class="text-secondary text-center py-4">{% trans "No chains in this period" %}</td></tr></tbody>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+  <div class="small text-secondary mt-2">{% blocktrans with g=chain_gap a=automation_gap %}A chain joins change sets on one device or VM with gaps up to {{ g }}; automation accounts bridge gaps up to {{ a }} only. A cable between two devices belongs to the chains of both.{% endblocktrans %}</div>
+{% endblock %}
