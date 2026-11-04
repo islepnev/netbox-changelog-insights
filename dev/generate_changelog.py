@@ -319,6 +319,89 @@ def op_vlan_create(w, msg):
         VLAN.objects.create(vid=vid, name=f'vlan{vid}')
 
 
+# Onboarding of a server: one device, several change sets over hours or days (see
+# onboarding_events()). ctx carries the device between the steps.
+
+def onboard_create(w, msg, ctx):
+    ctx['device'] = Device.objects.create(
+        name=w.name('srv'), device_type=w.dt_switch, role=w.role_server, site=w.rng.choice(w.site_list),
+        status='planned',
+    ).pk
+
+
+def onboard_metadata(w, msg, ctx):
+    dev = Device.objects.get(pk=ctx['device'])
+    dev.snapshot()
+    dev.serial = f'SN{w.rng.randrange(10 ** 8):08d}'
+    dev.asset_tag = f'AT{w.rng.randrange(10 ** 6):06d}'
+    if w.rng.random() < 0.5:
+        dev.comments = 'Received and racked'
+    dev.save()
+
+
+def onboard_module(w, msg, ctx):
+    bay = ModuleBay.objects.filter(device_id=ctx['device'], installed_module__isnull=True).first()
+    if bay:
+        Module.objects.create(device_id=ctx['device'], module_bay=bay, module_type=w.mt)
+
+
+def onboard_cable(w, msg, ctx):
+    a = Interface.objects.filter(device_id=ctx['device'], cable__isnull=True, mgmt_only=False).first()
+    b = w.free_endpoint()
+    if a and b and getattr(b, 'device_id', None) != ctx['device']:
+        Cable(a_terminations=[a], b_terminations=[b], status='connected').save()
+
+
+def onboard_ip(w, msg, ctx):
+    iface = Interface.objects.filter(device_id=ctx['device']).first()
+    n = w.ip_counter
+    w.ip_counter += 1
+    ip = IPAddress.objects.create(
+        address=f'10.{128 + ((n >> 16) & 127)}.{(n >> 8) & 255}.{n & 255}/24', assigned_object=iface,
+    )
+    dev = Device.objects.get(pk=ctx['device'])
+    dev.snapshot()
+    dev.primary_ip4 = ip
+    dev.save()
+
+
+def onboard_activate(w, msg, ctx):
+    dev = Device.objects.get(pk=ctx['device'])
+    dev.snapshot()
+    dev.status = 'active'
+    dev.save()
+
+
+# Steps: (operation, actor, earliest and latest offset from the create, in hours, probability).
+ONBOARDING = (
+    (onboard_metadata, 'person', 0.05, 2, 0.9),
+    (onboard_module, 'person', 0.1, 6, 0.6),
+    (onboard_module, 'person', 0.1, 6, 0.3),
+    (onboard_cable, 'person', 1, 48, 0.9),
+    (onboard_cable, 'person', 1, 48, 0.8),
+    (onboard_cable, 'sync-bot', 2, 72, 0.5),
+    (onboard_ip, 'ipam-bot', 1, 72, 0.8),
+    (onboard_activate, 'person', 24, 168, 0.7),
+)
+
+
+def onboarding_events(rng, start, end, tz, count):
+    """Events (time, actor, operation, ctx) for count server onboardings."""
+    people = [a[0] for a in ACTORS if a[2] == 'person' and a[0] != 'olga']
+    events = []
+    span = (end - start).total_seconds() - 8 * 86400
+    for _ in range(count):
+        t0 = start + timedelta(seconds=rng.uniform(0, max(span, 3600)))
+        person = rng.choice(people)
+        ctx = {}
+        events.append((t0, person, onboard_create, ctx))
+        for func, actor, lo, hi, p in ONBOARDING:
+            if rng.random() < p:
+                who = person if actor == 'person' else actor
+                events.append((t0 + timedelta(hours=rng.uniform(lo, hi)), who, func, ctx))
+    return events
+
+
 OPERATIONS = {name[3:]: func for name, func in globals().items() if name.startswith('op_')}
 
 
@@ -346,6 +429,7 @@ def main():
     ap.add_argument('--scale', type=float, default=0.25)
     ap.add_argument('--devices', type=int, default=300, help='base devices, created without change records')
     ap.add_argument('--seed', type=int, default=1)
+    ap.add_argument('--onboardings', type=int, default=0, help='server onboardings spread over hours and days')
     args = ap.parse_args()
 
     if not settings.DEBUG and not os.environ.get('GENERATE_ALLOW'):
@@ -376,15 +460,21 @@ def main():
         a_start = start if name != 'olga' else start
         a_end = end if name != 'olga' else start + timedelta(days=args.days // 3)
         for t in actor_times(rng, a_start, a_end, tz, share, hours, weekdays, int(total * share)):
-            events.append((t, name))
-    events.sort()
+            events.append((t, name, None, None))
+    events.extend(onboarding_events(rng, start, end, tz, args.onboardings))
+    events.sort(key=lambda e: e[0])
 
     times = []  # (request_id, time)
     done = Counter()
-    for i, (t, name) in enumerate(events):
-        kind = 'person' if name not in OPS else name
-        ops, weights = zip(*OPS[kind])
-        op = rng.choices(ops, weights)[0]
+    for i, (t, name, func, ctx) in enumerate(events):
+        if func is None:
+            kind = 'person' if name not in OPS else name
+            ops, weights = zip(*OPS[kind])
+            op = rng.choices(ops, weights)[0]
+        else:
+            op = func.__name__
+            if func is not onboard_create and 'device' not in ctx:
+                continue
         msg = 'synthetic change' if rng.random() < MESSAGE_SHARE else ''
         rid = uuid.uuid4()
         request = NetBoxFakeRequest({
@@ -393,7 +483,10 @@ def main():
         })
         try:
             with transaction.atomic(), event_tracking(request):
-                OPERATIONS[op](w, msg)
+                if func is None:
+                    OPERATIONS[op](w, msg)
+                else:
+                    func(w, msg, ctx)
         except Exception as e:  # an invalid random pick; skip it
             done[f'error {op}: {type(e).__name__}'] += 1
             continue
