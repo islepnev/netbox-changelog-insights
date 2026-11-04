@@ -1,0 +1,76 @@
+{% extends 'generic/_base.html' %}
+{% load i18n insights %}
+
+{% block title %}{% trans "Contributors" %}{% endblock %}
+{% block head %}{% include 'netbox_changelog_insights/inc/head.html' %}{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary">{% trans "Activity per user. Counts are primary changes; side effects are folded." %}</div>
+{% endblock %}
+
+{% block tabs %}{% include 'netbox_changelog_insights/inc/tabs.html' with active='contributors' %}{% endblock %}
+
+{% block content %}
+  {% include 'netbox_changelog_insights/inc/filter_bar.html' %}
+  <div class="card">
+    <div class="card-header">
+      <h2 class="card-title">{% blocktrans count n=users|length %}{{ n }} contributor{% plural %}{{ n }} contributors{% endblocktrans %}</h2>
+      {% if automation_group %}
+        <div class="card-actions btn-group">
+          <a href="{{ kind_urls.all }}" class="btn btn-sm {% if not flt.kind %}btn-primary{% else %}btn-outline-primary{% endif %}">{% trans "All" %}</a>
+          <a href="{{ kind_urls.person }}" class="btn btn-sm {% if flt.kind == 'person' %}btn-primary{% else %}btn-outline-primary{% endif %}">{% trans "People" %}</a>
+          <a href="{{ kind_urls.automation }}" class="btn btn-sm {% if flt.kind == 'automation' %}btn-primary{% else %}btn-outline-primary{% endif %}">{% trans "Automation" %}</a>
+        </div>
+      {% endif %}
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover card-table mb-0 insights-compact">
+        <thead>
+          <tr>
+            <th>{% trans "User" %}</th>
+            <th class="text-end">{% trans "Change sets" %}</th>
+            <th class="text-end">{% trans "Created" %}</th>
+            <th class="text-end">{% trans "Updated" %}</th>
+            <th class="text-end">{% trans "Deleted" %}</th>
+            <th class="text-end d-none d-xl-table-cell" title="{% trans 'All records, folded included' %}">{% trans "Records" %}</th>
+            <th title="{% trans 'Change sets per week; dashed: a week that the period covers in part' %}">{% trans "Weekly" %}</th>
+            <th>{% trans "Top types" %}</th>
+            <th>{% trans "First / last change" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+            <tr>
+              <td class="text-nowrap">{% include 'netbox_changelog_insights/inc/user.html' %}</td>
+              <td class="text-end"><a href="{{ u.changelog_url }}">{{ u.change_sets }}</a></td>
+              <td class="text-end"><a href="{{ u.action_urls.create }}" class="text-green">{{ u.create }}</a></td>
+              <td class="text-end"><a href="{{ u.action_urls.update }}" class="text-blue">{{ u.update }}</a></td>
+              <td class="text-end"><a href="{{ u.action_urls.delete }}" class="text-red">{{ u.delete }}</a></td>
+              <td class="text-end text-secondary d-none d-xl-table-cell">{{ u.records }}</td>
+              <td>
+                {% if u.sparkline %}
+                  <svg class="insights-sparkline" width="{{ u.sparkline.width }}" height="{{ u.sparkline.height }}" viewBox="0 0 {{ u.sparkline.width }} {{ u.sparkline.height }}" role="img" aria-label="{% trans 'Change sets per week' %}">
+                    <title>{{ u.sparkline.title }}</title>
+                    {% for seg in u.sparkline.solid %}<polyline points="{{ seg }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>{% endfor %}
+                    {% for seg in u.sparkline.dashed %}<polyline points="{{ seg }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2" opacity=".6"/>{% endfor %}
+                  </svg>
+                {% endif %}
+              </td>
+              <td class="small">
+                {% for t in u.top_types %}<div class="text-nowrap"><a href="{{ t.changelog_url }}" class="text-reset">{{ t.type_label }}</a> <span class="text-secondary">{{ t.records }}</span></div>{% endfor %}
+              </td>
+              <td class="text-nowrap small">
+                <div title="{{ u.first|date:'Y-m-d H:i' }}">{{ u.first|date:"Y-m-d" }}</div>
+                <div title="{{ u.last|date:'Y-m-d H:i' }}">{{ u.last|date:"Y-m-d" }}</div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="9" class="text-secondary text-center py-4">{% trans "No changes in this period" %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="small text-secondary mt-2">{% trans "First and last change: over the whole changelog. Other columns: the selected period." %}
+    {% trans "Numbers link to the core changelog, which cannot filter by fold: it also lists the folded records." %}</div>
+{% endblock %}

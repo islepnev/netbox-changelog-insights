@@ -1,0 +1,6 @@
+{% load i18n %}
+<ul class="nav nav-tabs">
+  <li class="nav-item"><a class="nav-link{% if active == 'pulse' %} active{% endif %}" href="{% url 'plugins:netbox_changelog_insights:pulse' %}?{{ tab_query }}">{% trans "Pulse" %}</a></li>
+  <li class="nav-item"><a class="nav-link{% if active == 'contributors' %} active{% endif %}" href="{% url 'plugins:netbox_changelog_insights:contributors' %}?{{ tab_query }}">{% trans "Contributors" %}</a></li>
+  <li class="nav-item"><a class="nav-link{% if active == 'chains' %} active{% endif %}" href="{% url 'plugins:netbox_changelog_insights:chains' %}?{{ tab_query }}">{% trans "Chains" %}</a></li>
+</ul>

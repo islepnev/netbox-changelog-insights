@@ -50,9 +50,9 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 
 ## Decisions
 
-1. Read the changelog in place; keep no copy. Aggregates are SQL `GROUP BY` over an indexed time range, cached by filter and period with a TTL setting. Rollup tables only if a measurement shows the need. Reach is bounded by `CHANGELOG_RETENTION`; every page shows the oldest available record.
+1. Read the changelog in place; keep no copy. Aggregates are SQL `GROUP BY` over an indexed time range, cached by filter and period with a TTL setting. Rollup tables only if a measurement shows the need. The fold queries run with PostgreSQL JIT off: their cost estimate starts JIT compilation, which takes longer than the query. Reach is bounded by `CHANGELOG_RETENTION`; every page shows the oldest available record.
 2. The activity unit is the change set, not the record. Creating one cable writes the cable, two terminations and updates to both ends; counting records ranks cabling work far above everything else. Records stay as a second metric.
-3. Side effects fold into their cause within a change set: a record whose related object changed in the same change set (components created with a device); a cable termination, and an update that changes only cable fields (`cable`, `cable_end`), when a cable in the same change set changed. Counts and rankings use primary changes; folded records open on click. The rules are checked against production data before coding.
+3. Side effects fold into their cause within a change set: a further record of the same object folds into its main record (create, else delete, else first update; NetBox writes a create and an update for each new cable); a record whose related object changed in the same change set (components created with a device); a cable termination, and an update that changes only cable fields (`cable`, `cable_end`, `cable_connector`, `cable_positions`), when a cable in the same change set changed; an update of a device or virtual machine that changes only `primary_ip4`, `primary_ip6` or `oob_ip`, when the IP address it points to (before or after) changed in the same change set ("Make this the primary IP": 459 of 479 sets "device update + IP create", fold audit v2, section 11). Counts and rankings use primary changes; folded records open on click. Checked on production data, 90 days (`tools/fold_audit.py`): 45% of records fold; every new cable (2,845) has the extra update; no cable-only update lacks a cable record; no change set loses all primary records.
 4. Actor kind (person or automation) is membership in a NetBox user group named in the plugin settings. Unset: no split. No name patterns. A deleted user is shown by `user_name`.
 5. Field-level changes use the same rules as `ObjectChange.diff()`: ignore `created`, `last_updated`, MPTT fields and keys starting with `_`. Computed in PostgreSQL over `jsonb` for update records.
 6. Every number links to the core changelog list (`/core/changelog/`) with the same filter (user, action, type, time range, request). Field-level figures, which core cannot filter, link to the plugin's own list.
@@ -60,6 +60,7 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 8. Time buckets and the heatmap use NetBox `TIME_ZONE`.
 9. UI: one "Insights" menu; NetBox templates and theme variables (light and dark); one chart library vendored as a static file, no CDN; the heatmap is an HTML table.
 10. No models in v1, hence no migrations. `min_version` 4.6.0.
+11. Chains: change sets about one device or virtual machine (the root) over time, for example the onboarding of a server. The root of a record is the device or VM itself, its related object, the `device` or `virtual_machine` field of its data, or the component it is attached to (cable terminations, IP and MAC addresses, FHRP assignments); a cable has the roots of its terminations. Change sets on one root join a chain when the gap is up to `chain_gap_hours` (default 168); a gap longer than `automation_gap_hours` (default 24) joins only if a person's change set follows within the chain gap, so that automation work joins a chain but periodic syncs do not stretch it. Chains are not joined through cables. Production data, 90 days (`tools/chain_audit.py`): a root for 91% of primary records; 83% of the gaps under 1 hour; onboarding goes on with IP addresses days later (163 chains, median 6.3 days at a 7-day gap); joining through cables forms groups of over 200 chains.
 
 ## Pages, ranked by value against effort
 
@@ -67,10 +68,11 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 |---|---|---|
 | Pulse | Period (7, 30, 90 days, custom): change sets, records by action, active users by kind, top users, types, objects | M |
 | Contributors | Per user: first and last change, change sets, creates, updates, deletes, weekly sparkline, top types | M |
+| Chains | Chains per device or VM: onboarding filter, stages, duration, users; click shows the change sets | L |
 | Activity | Series over time grouped by one dimension (user, app, model, action); weekday × hour heatmap | M |
 | Actor kind | Person/automation split on all pages | S |
 | Hotspots | Most changed objects; most changed fields per model | M |
-| API | Aggregates over REST for Grafana | S |
+| API | Aggregates over REST for Grafana: `activity/` by day, week, user, type; Grafana row in `docs/grafana-row.json` (done) | S |
 | Scope | Grouping by site and tenant, resolved from object data or the related object | L |
 
 ## Out of scope

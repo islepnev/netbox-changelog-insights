@@ -1,0 +1,166 @@
+{% extends 'generic/_base.html' %}
+{% load i18n insights %}
+
+{% block title %}{% trans "Pulse" %}{% endblock %}
+{% block head %}{% include 'netbox_changelog_insights/inc/head.html' %}{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary">{% trans "Changelog activity. The unit is the change set: the records of one request." %}</div>
+{% endblock %}
+
+{% block tabs %}{% include 'netbox_changelog_insights/inc/tabs.html' with active='pulse' %}{% endblock %}
+
+{% block content %}
+  {% include 'netbox_changelog_insights/inc/filter_bar.html' %}
+  {% with t=pulse.totals p=pulse.primary %}
+  <div class="row row-cards mb-3">
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="subheader">{% trans "Change sets" %}</div>
+        <div class="h1 mb-1"><a href="{{ flt.changelog_url }}" class="text-reset" title="{% trans 'Change sets with a primary change that matches the filter. The changelog shows all their records.' %}">{{ p.change_sets }}</a></div>
+        <div class="text-secondary small">{% blocktrans with n=p.records %}{{ n }} primary changes{% endblocktrans %}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="subheader">{% trans "Records" %}</div>
+        <div class="h1 mb-1"><a href="{{ flt.changelog_url }}" class="text-reset">{{ t.records }}</a></div>
+        <div class="small">
+          <a href="{{ action_urls.create }}" class="text-green">{{ t.create }} {% trans "created" %}</a>,
+          <a href="{{ action_urls.update }}" class="text-blue">{{ t.update }} {% trans "updated" %}</a>,
+          <a href="{{ action_urls.delete }}" class="text-red">{{ t.delete }} {% trans "deleted" %}</a>
+        </div>
+        <div class="text-secondary small" title="{% trans 'Side effects folded into their cause: components of a new device, cable terminations and cable fields of a new cable.' %}">{% blocktrans with n=t.folded %}{{ n }} folded{% endblocktrans %}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="subheader">{% trans "Primary changes" %}</div>
+        <div class="h1 mb-1">{{ p.records }}</div>
+        <div class="small">
+          <span class="text-green">{{ p.create }} {% trans "created" %}</span>,
+          <span class="text-blue">{{ p.update }} {% trans "updated" %}</span>,
+          <span class="text-red">{{ p.delete }} {% trans "deleted" %}</span>
+        </div>
+        <div class="text-secondary small">{% blocktrans with n=p.objects %}{{ n }} objects{% endblocktrans %}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="subheader">{% trans "Active users" %}</div>
+        <div class="h1 mb-1"><a href="{{ contributors_url }}" class="text-reset">{{ pulse.active_users }}</a></div>
+        <div class="small text-secondary">
+          {% if pulse.kinds is not None %}
+            <a href="{{ person_url }}">{{ pulse.kinds.person }} {% trans "people" %}</a>,
+            <a href="{{ automation_url }}">{{ pulse.kinds.automation }} {% trans "automation" %}</a>
+          {% else %}
+            {% trans "Set automation_group to split people and automation." %}
+          {% endif %}
+        </div>
+      </div></div>
+    </div>
+  </div>
+  {% endwith %}
+
+  <div class="card mb-3">
+    <div class="card-header"><h2 class="card-title">{% trans "Change sets per day" %}</h2>
+      <div class="card-actions small text-secondary">{% blocktrans with n=daily_chart.peak %}Peak: {{ n }}{% endblocktrans %}</div>
+    </div>
+    <div class="card-body">
+      {% include 'netbox_changelog_insights/inc/bar_chart.html' with chart=daily_chart %}
+    </div>
+  </div>
+
+  <div class="row row-cards mb-3">
+    <div class="col-md-6 col-xl-4">
+      <div class="card h-100">
+        <div class="card-header"><h2 class="card-title">{% trans "Top users" %}</h2>
+          <div class="card-actions"><a href="{{ contributors_url }}" class="small">{% trans "All contributors" %}</a></div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover card-table mb-0 insights-compact">
+            <thead><tr><th>{% trans "User" %}</th><th class="text-end" title="{% trans 'Change sets' %}">{% trans "Sets" %}</th><th class="text-end">{% trans "Created" %}</th><th class="text-end">{% trans "Updated" %}</th><th class="text-end">{% trans "Deleted" %}</th></tr></thead>
+            <tbody>
+              {% for u in pulse.top_users %}
+                <tr>
+                  <td>{% include 'netbox_changelog_insights/inc/user.html' %}</td>
+                  <td class="text-end"><a href="{{ u.changelog_url }}">{{ u.change_sets }}</a></td>
+                  <td class="text-end">{{ u.create }}</td>
+                  <td class="text-end">{{ u.update }}</td>
+                  <td class="text-end">{{ u.delete }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="5" class="text-secondary text-center py-3">{% trans "No changes in this period" %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6 col-xl-4">
+      <div class="card h-100">
+        <div class="card-header"><h2 class="card-title">{% trans "Top object types" %}</h2></div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover card-table mb-0">
+            <thead><tr><th>{% trans "Type" %}</th><th class="text-end">{% trans "Sets" %}</th><th class="text-end" title="{% trans 'Primary changes' %}">{% trans "Changes" %}</th></tr></thead>
+            <tbody>
+              {% for r in pulse.top_types %}
+                <tr>
+                  <td><a href="{{ r.filter_url }}" title="{% trans 'Filter by this type' %}">{{ r.type_label }}</a></td>
+                  <td class="text-end"><a href="{{ r.changelog_url }}">{{ r.change_sets }}</a></td>
+                  <td class="text-end" title="{{ r.create }} {% trans 'created' %}, {{ r.update }} {% trans 'updated' %}, {{ r.delete }} {% trans 'deleted' %}">{{ r.records }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="3" class="text-secondary text-center py-3">{% trans "No changes in this period" %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6 col-xl-4">
+      <div class="card h-100">
+        <div class="card-header"><h2 class="card-title">{% trans "Most changed objects" %}</h2></div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover card-table mb-0">
+            <thead><tr><th>{% trans "Object" %}</th><th class="text-end">{% trans "Sets" %}</th></tr></thead>
+            <tbody>
+              {% for r in pulse.top_objects %}
+                <tr>
+                  <td>
+                    {% if r.object_url %}<a href="{{ r.object_url }}">{{ r.repr }}</a>{% else %}<span class="{% if r.deleted %}text-decoration-line-through text-secondary{% endif %}">{{ r.repr }}</span>{% endif %}
+                    <div class="small text-secondary">{{ r.type_label }}</div>
+                  </td>
+                  <td class="text-end"><a href="{{ r.changelog_url }}">{{ r.change_sets }}</a></td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="2" class="text-secondary text-center py-3">{% trans "No changes in this period" %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><h2 class="card-title">{% trans "Recent change sets" %}</h2>
+      <div class="card-actions small text-secondary">{% trans "Click a row to show the folded records." %}</div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm card-table mb-0 insights-changesets">
+        <thead><tr>
+          <th style="width:1%"></th><th>{% trans "Time" %}</th><th>{% trans "User" %}</th><th>{% trans "Change" %}</th>
+          <th class="text-end" title="{% trans 'Primary changes' %}">{% trans "Changes" %}</th>
+          <th class="text-end">{% trans "Folded" %}</th><th class="text-end">{% trans "Records" %}</th>
+        </tr></thead>
+        {% for cs in recent %}
+          {% include 'netbox_changelog_insights/inc/changeset_row.html' %}
+        {% empty %}
+          <tbody><tr><td colspan="7" class="text-secondary text-center py-3">{% trans "No changes in this period" %}</td></tr></tbody>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+  <div class="small text-secondary mt-2">{% trans "Numbers link to the core changelog, which cannot filter by fold: it also lists the folded records." %}</div>
+{% endblock %}

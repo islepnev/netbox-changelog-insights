@@ -1,0 +1,586 @@
+"""Aggregates over the core changelog for the Pulse and Contributors pages."""
+import contextlib
+import hashlib
+import statistics
+from collections import defaultdict
+from datetime import datetime, time, timedelta
+
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
+from django.core.cache import cache
+from django.db import connection, transaction
+from django.db.models import Count, Max, Min, Q
+from django.db.models.functions import TruncDay, TruncWeek
+
+from core.models import ObjectChange
+from netbox.plugins import get_plugin_config
+
+from . import __version__
+from .filters import KIND_AUTOMATION, KIND_PERSON, changeset_changelog_url, local_tz
+from .chains import DEVICE, STAGES, build_chains
+from .folding import annotate_fold
+from .labels import type_label
+
+__all__ = (
+    'Insights',
+)
+
+ACTIONS = ('create', 'update', 'delete')
+CACHE_VERSION = 3
+PRIMARY_COLUMNS = (
+    'id', 'request_id', 'time', 'user_id', 'user_name', 'action', 'changed_object_type_id', 'changed_object_id',
+)
+_AGGREGATES = (
+    "count(*), count(DISTINCT request_id), "
+    "count(*) FILTER (WHERE action = 'create'), "
+    "count(*) FILTER (WHERE action = 'update'), "
+    "count(*) FILTER (WHERE action = 'delete'), "
+    "max(id), min(time)"
+)
+# One SELECT per group over the primary records "p". Key columns: k1 bigint, k2 text, k3 bigint, k4 date.
+_GROUPS = {
+    'total': (
+        "SELECT 'total', NULL::bigint, NULL::text, count(DISTINCT (changed_object_type_id, changed_object_id)), "
+        "NULL::date, {aggs} FROM p"
+    ),
+    'user': "SELECT 'user', user_id, user_name, NULL::bigint, NULL::date, {aggs} FROM p GROUP BY user_id, user_name",
+    'type': "SELECT 'type', changed_object_type_id, NULL::text, NULL::bigint, NULL::date, {aggs} FROM p GROUP BY changed_object_type_id",
+    'object': (
+        "SELECT * FROM (SELECT 'object', changed_object_type_id, NULL::text, changed_object_id, NULL::date, {aggs} "
+        "FROM p GROUP BY changed_object_type_id, changed_object_id "
+        "ORDER BY count(DISTINCT request_id) DESC, count(*) DESC, max(id) DESC LIMIT %s) AS o",
+        ('limit',),
+    ),
+    'recent': (
+        "SELECT * FROM (SELECT 'recent', min(id), request_id::text, NULL::bigint, NULL::date, {aggs} "
+        "FROM p GROUP BY request_id ORDER BY min(time) DESC LIMIT %s) AS r",
+        ('limit',),
+    ),
+    'user_type': (
+        "SELECT 'user_type', user_id, user_name, changed_object_type_id, NULL::date, {aggs} "
+        "FROM p GROUP BY user_id, user_name, changed_object_type_id"
+    ),
+    'user_week': (
+        "SELECT 'user_week', user_id, user_name, NULL::bigint, date_trunc('week', time AT TIME ZONE %s)::date, {aggs} "
+        "FROM p GROUP BY 2, 3, 5",
+        ('tz',),
+    ),
+    'week': (
+        "SELECT 'week', NULL::bigint, NULL::text, NULL::bigint, date_trunc('week', time AT TIME ZONE %s)::date, {aggs} "
+        "FROM p GROUP BY 5",
+        ('tz',),
+    ),
+    'day': (
+        "SELECT 'day', NULL::bigint, NULL::text, NULL::bigint, (time AT TIME ZONE %s)::date, {aggs} FROM p GROUP BY 5",
+        ('tz',),
+    ),
+}
+
+
+@contextlib.contextmanager
+def no_jit():
+    """
+    Run the fold queries without PostgreSQL JIT. Their correlated subqueries get a high
+    cost estimate, which starts JIT compilation; that costs more than the query itself
+    (EXPLAIN ANALYZE, 7 days: 50 ms execution, 657 ms JIT).
+    """
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute('SET LOCAL jit = off')
+        yield
+
+
+def _action_counts():
+    return {a: Count('pk', filter=Q(action=a)) for a in ACTIONS}
+
+
+def _user_key(row):
+    return ('id', row['user_id']) if row['user_id'] else ('name', row['user_name'])
+
+
+class Insights:
+    """
+    Aggregates for one user (permissions) and one filter. The scope is the changelog
+    the user may view (design decision 7); all numbers are computed inside it.
+    """
+
+    def __init__(self, user, flt):
+        self.user = user
+        self.flt = flt
+        self.tz = local_tz()
+        self.scope = ObjectChange.objects.restrict(user, 'view')
+        if flt.kind:
+            flt.kind_user_ids = self.kind_user_ids()
+
+    # Actor kind (design decision 4)
+
+    @property
+    def automation_group(self):
+        return get_plugin_config('netbox_changelog_insights', 'automation_group')
+
+    def automation_user_ids(self):
+        name = self.automation_group
+        if not name:
+            return None
+        return set(get_user_model().objects.filter(groups__name=name).values_list('pk', flat=True))
+
+    def kind_user_ids(self):
+        """Ids of the users of the selected kind, for links to the core changelog."""
+        ids = self.automation_user_ids()
+        if ids is None or not self.flt.kind:
+            return None
+        if self.flt.kind == KIND_AUTOMATION:
+            return sorted(ids)
+        people = self.scope.filter(time__gte=self.flt.start, time__lt=self.flt.end, user_id__isnull=False)
+        return sorted(set(people.values_list('user_id', flat=True).distinct()) - ids)
+
+    @staticmethod
+    def kind_of(user_id, automation_ids):
+        if automation_ids is None:
+            return None
+        return KIND_AUTOMATION if user_id in automation_ids else KIND_PERSON
+
+    # Querysets
+
+    def records(self):
+        """Records in the period that match the filter, folded or not."""
+        flt = self.flt
+        qs = self.scope.filter(time__gte=flt.start, time__lt=flt.end)
+        if flt.user_id:
+            qs = qs.filter(user_id=flt.user_id)
+        elif flt.user_name:
+            qs = qs.filter(user__isnull=True, user_name=flt.user_name)
+        if flt.type_id:
+            qs = qs.filter(changed_object_type_id=flt.type_id)
+        if flt.action:
+            qs = qs.filter(action=flt.action)
+        if flt.kind:
+            ids = self.automation_user_ids()
+            if ids is not None:
+                if flt.kind == KIND_AUTOMATION:
+                    qs = qs.filter(user_id__in=ids)
+                else:
+                    qs = qs.exclude(user_id__in=ids)
+        return qs
+
+    def primary(self):
+        """Primary records: records that do not fold into another record of their change set."""
+        return annotate_fold(self.records(), self.scope).filter(fold_parent__isnull=True)
+
+    def primary_groups(self, names, limit=10):
+        """
+        Aggregates of the primary records, grouped several ways in one query, so that the
+        fold is evaluated once. Return {group: [row, ...]}; each row has the keys
+        k1, k2, k3, k4, records, change_sets, create, update, delete, last_id, first_time.
+        """
+        query, params = self.primary_groups_sql(names, limit)
+        keys = ('k1', 'k2', 'k3', 'k4', 'records', 'change_sets', 'create', 'update', 'delete', 'last_id',
+                'first_time')
+        out = {n: [] for n in names}
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            for row in cursor.fetchall():
+                out[row[0]].append(dict(zip(keys, row[1:])))
+        return out
+
+    def primary_groups_sql(self, names, limit=10):
+        """SQL text and parameters of primary_groups(); also for EXPLAIN in tools/timing.py."""
+        # The inner query is Django's own SQL with its positional parameters; the group
+        # queries follow it in text order, so their parameters follow the inner ones.
+        sql, params = self.primary().values(*PRIMARY_COLUMNS).order_by().query.sql_with_params()
+        values = {'limit': limit, 'tz': str(self.tz)}
+        params = list(params)
+        parts = []
+        for name in names:
+            group = _GROUPS[name]
+            text, needs = (group, ()) if isinstance(group, str) else group
+            parts.append(f'({text.format(aggs=_AGGREGATES)})')
+            params.extend(values[n] for n in needs)
+        return f'WITH p AS MATERIALIZED ({sql}) ' + ' UNION ALL '.join(parts), params
+
+    # Cache (design decision 1)
+
+    def _cached(self, name, func):
+        ttl = get_plugin_config('netbox_changelog_insights', 'cache_ttl') or 0
+        if ttl <= 0:
+            return func()
+        # Cached values hold plain data only, and the key names both versions, so that an
+        # upgrade never reads values that an older version wrote. Superusers share entries.
+        params = sorted(self.flt.params().items())
+        who = 'superuser' if self.user.is_superuser else self.user.pk
+        versions = f'{__version__}|{getattr(settings, "VERSION", "")}'
+        key = f'{name}|{versions}|{who}|{self.flt.start.isoformat()}|{self.flt.end.isoformat()}|{params}'
+        key = f'changelog_insights:{CACHE_VERSION}:' + hashlib.sha256(key.encode()).hexdigest()
+        value = cache.get(key)
+        if value is None:
+            value = func()
+            cache.set(key, value, ttl)
+        return value
+
+    # Pulse
+
+    def oldest_record(self):
+        return self.scope.aggregate(t=Min('time'))['t']
+
+    def pulse(self):
+        return self._cached('pulse', self._pulse_no_jit)
+
+    def _pulse_no_jit(self):
+        with no_jit():
+            return self._pulse()
+
+    def _pulse(self):
+        records = self.records()
+        automation_ids = self.automation_user_ids()
+        groups = self.primary_groups(('total', 'user', 'type', 'object', 'recent', 'day'))
+
+        totals = records.aggregate(
+            records=Count('pk'),
+            change_sets=Count('request_id', distinct=True),
+            **_action_counts(),
+        )
+        total = groups['total'][0]
+        prim = {k: total[k] for k in ('records', 'change_sets', 'create', 'update', 'delete')}
+        prim['objects'] = total['k3']
+        totals['folded'] = totals['records'] - prim['records']
+
+        users = self._users(groups['user'], records, automation_ids)
+        kinds = None
+        if automation_ids is not None:
+            kinds = {KIND_PERSON: 0, KIND_AUTOMATION: 0}
+            for u in users:
+                kinds[u['kind']] += 1
+
+        return {
+            'totals': totals,
+            'primary': prim,
+            'active_users': len(users),
+            'kinds': kinds,
+            'top_users': users[:10],
+            'top_types': self._top_types(groups['type']),
+            'top_objects': self._top_objects(groups['object']),
+            'daily': self._daily(groups['day']),
+            'recent': self._recent(groups['recent']),
+        }
+
+    def _users(self, rows, records, automation_ids):
+        """Users with change sets in the period, most active first."""
+        rec_by_key = defaultdict(int)
+        for row in records.values('user_id', 'user_name').annotate(records=Count('pk')).order_by():
+            rec_by_key[_user_key(row)] += row['records']
+
+        # A user renamed during the period appears under several names: merge by id.
+        users = {}
+        for row in rows:
+            key = _user_key({'user_id': row['k1'], 'user_name': row['k2']})
+            u = users.setdefault(key, {
+                'user_id': row['k1'], 'user_name': row['k2'],
+                'change_sets': 0, 'create': 0, 'update': 0, 'delete': 0,
+            })
+            for k in ('change_sets', 'create', 'update', 'delete'):
+                u[k] += row[k]
+        names = dict(get_user_model().objects.filter(
+            pk__in=[u['user_id'] for u in users.values() if u['user_id']]
+        ).values_list('pk', 'username'))
+        for key, u in users.items():
+            if u['user_id'] in names:
+                u['user_name'] = names[u['user_id']]
+            u['deleted'] = u['user_id'] is None
+            u['records'] = rec_by_key.get(key, 0)
+            u['kind'] = self.kind_of(u['user_id'], automation_ids)
+            u['changelog_url'] = self._user_changelog_url(u)
+        return sorted(users.values(), key=lambda u: (-u['change_sets'], u['user_name']))
+
+    def _user_changelog_url(self, u, **extra):
+        if u['user_id']:
+            return self.flt.changelog_url(user_id=u['user_id'], **extra)
+        return self.flt.changelog_url(user_name=u['user_name'], **extra)
+
+    def _top_types(self, rows, limit=10):
+        rows = sorted(rows, key=lambda r: (-r['change_sets'], -r['records']))[:limit]
+        types = ContentType.objects.in_bulk([r['k1'] for r in rows])
+        for r in rows:
+            r['changed_object_type_id'] = r['k1']
+            r['type_label'] = type_label(types.get(r['k1']))
+            r['changelog_url'] = self.flt.changelog_url(changed_object_type_id=r['k1'])
+        return rows
+
+    def _top_objects(self, rows):
+        last = ObjectChange.objects.in_bulk([r['last_id'] for r in rows])
+        types = ContentType.objects.in_bulk([r['k1'] for r in rows])
+        for r in rows:
+            rec = last.get(r['last_id'])
+            r['type_label'] = type_label(types.get(r['k1']))
+            r['repr'] = rec.object_repr if rec else ''
+            r['deleted'] = rec is not None and rec.action == 'delete'
+            r['object_url'] = None
+            # The model may be gone (a disabled or removed plugin): then there is no object to link.
+            model = types[r['k1']].model_class() if r['k1'] in types else None
+            if rec is not None and not r['deleted'] and model is not None:
+                obj = model.objects.filter(pk=rec.changed_object_id).first()
+                if obj is not None and hasattr(obj, 'get_absolute_url'):
+                    r['object_url'] = obj.get_absolute_url()
+            r['changelog_url'] = self.flt.changelog_url(changed_object_type_id=r['k1'], changed_object_id=r['k3'])
+        return rows
+
+    def _daily(self, rows):
+        """Change sets and primary changes per day in TIME_ZONE, every day of the period."""
+        by_day = {r['k4']: r for r in rows}
+        days = []
+        d = self.flt.start_date
+        while d <= self.flt.end_date:
+            r = by_day.get(d, {'change_sets': 0, 'records': 0})
+            days.append({'day': d, 'change_sets': r['change_sets'], 'records': r['records']})
+            d += timedelta(days=1)
+        return days
+
+    def _recent(self, rows):
+        """Latest change sets: first primary record, counts of primary and folded records."""
+        ids = [r['k2'] for r in rows]
+        totals = {str(k): n for k, n in self.scope.filter(request_id__in=ids).values('request_id').annotate(
+            n=Count('pk')
+        ).order_by().values_list('request_id', 'n')}
+        first = ObjectChange.objects.select_related('changed_object_type', 'user').in_bulk([r['k1'] for r in rows])
+        out = []
+        for r in sorted(rows, key=lambda r: r['first_time'], reverse=True):
+            records = totals.get(r['k2'], 0)
+            rec = first.get(r['k1'])
+            out.append({
+                'request_id': r['k2'],
+                'time': r['first_time'],
+                'primary': r['records'],
+                'records': records,
+                'folded': records - r['records'],
+                'first': {
+                    'action': rec.action,
+                    'type_label': type_label(rec.changed_object_type, include_app=False),
+                    'repr': rec.object_repr,
+                    'user': rec.user.username if rec.user else rec.user_name,
+                } if rec else None,
+                'changelog_url': changeset_changelog_url(r['k2']),
+            })
+        return out
+
+    # Change set
+
+    def change_set(self, request_id):
+        """All records of one change set, annotated with fold_parent, in record order."""
+        qs = self.scope.filter(request_id=request_id).select_related('changed_object_type', 'user')
+        with no_jit():
+            return list(annotate_fold(qs, self.scope).order_by('pk'))
+
+    # Chains (design decision 11)
+
+    def chains(self, limit=100):
+        return self._cached(f'chains{limit}', lambda: self._chains_no_jit(limit))
+
+    def _chains_no_jit(self, limit):
+        with no_jit():
+            return self._chains(limit)
+
+    def _chains(self, limit):
+        flt = self.flt
+        chain_gap = timedelta(hours=get_plugin_config('netbox_changelog_insights', 'chain_gap_hours', 7 * 24))
+        automation_gap = timedelta(hours=get_plugin_config('netbox_changelog_insights', 'automation_gap_hours', 24))
+        automation_ids = self.automation_user_ids() or set()
+        # Read from chain_gap before the period: a chain may begin before it.
+        records = self.scope.filter(time__gte=flt.start - chain_gap, time__lt=flt.end)
+        primary_ids = set(annotate_fold(records, self.scope).filter(fold_parent__isnull=True).values_list('pk', flat=True))
+        chains, resolver = build_chains(records, primary_ids, self.scope, automation_ids, chain_gap, automation_gap)
+
+        def keep(c):
+            if c.end < flt.start:
+                return False
+            if flt.onboarding and not c.onboarding:
+                return False
+            ids = {cs['user_id'] for cs in c.sets}
+            names = {cs['user'] for cs in c.sets if cs['user_id'] is None}
+            if flt.user_id and flt.user_id not in ids:
+                return False
+            if flt.user_name and flt.user_name not in names:
+                return False
+            if flt.kind == KIND_AUTOMATION and not ids & automation_ids:
+                return False
+            if flt.kind == KIND_PERSON and not (ids - automation_ids or names):
+                return False
+            return True
+
+        chains = sorted((c for c in chains if keep(c)), key=lambda c: c.start, reverse=True)
+        onboarding = [c for c in chains if c.onboarding]
+        multi = [c for c in chains if len(c.sets) > 1]
+        summary = {
+            'chains': len(chains),
+            'multi': len(multi),
+            'onboarding': len(onboarding),
+            'onboarding_median': statistics.median(c.duration.total_seconds() for c in onboarding) if onboarding else None,
+            'mixed': sum(1 for c in chains if {cs['user_id'] in automation_ids for cs in c.sets} == {True, False}),
+        }
+        shown = chains[:limit]
+        labels = self._root_labels([c.root for c in shown])
+        stage_labels = dict(STAGES)
+        device_type = resolver.ct_id.get(DEVICE)
+        rows = []
+        for c in shown:
+            label = labels.get(c.root, {})
+            users = []
+            for cs in c.sets:
+                if cs['user'] not in [u['name'] for u in users]:
+                    users.append({'name': cs['user'], 'automation': cs['user_id'] in automation_ids})
+            rows.append({
+                'key': f'{c.root[0]}-{c.root[1]}-{int(c.start.timestamp())}',
+                'root_kind': 'device' if c.root[0] == device_type else 'virtual machine',
+                'root_repr': label.get('repr') or f'#{c.root[1]}',
+                'root_url': label.get('url'),
+                'start': c.start,
+                'end': c.end,
+                'duration': c.duration.total_seconds(),
+                'change_sets': len(c.sets),
+                'records': c.records,
+                'onboarding': c.onboarding,
+                'users': users,
+                'stages': [{'key': s, 'label': stage_labels[s]} for s in c.stages],
+                'sets': [
+                    {
+                        'request_id': str(cs['request_id']),
+                        'time': cs['time'],
+                        'user': cs['user'],
+                        'automation': cs['user_id'] in automation_ids,
+                        'records': len(cs['records'][c.root]),
+                        'stages': [stage_labels[s] for s in sorted(cs['stages'][c.root], key=[k for k, _ in STAGES].index)],
+                        'changelog_url': changeset_changelog_url(cs['request_id']),
+                    }
+                    for cs in c.sets[:200]
+                ],
+                # The object changelog of NetBox lists the root and its components.
+                'changelog_url': f"{label['url']}changelog/" if label.get('url') else None,
+            })
+        return {'summary': summary, 'chains': rows, 'shown': len(rows)}
+
+    def _root_labels(self, roots):
+        """Latest name and, if the object exists, the URL of each root."""
+        by_type = defaultdict(set)
+        for t, i in roots:
+            by_type[t].add(i)
+        out = {}
+        for t, ids in by_type.items():
+            latest = self.scope.filter(changed_object_type_id=t, changed_object_id__in=ids).values(
+                'changed_object_id').annotate(last=Max('pk')).order_by()
+            reprs = dict(ObjectChange.objects.filter(pk__in=[r['last'] for r in latest]).values_list(
+                'changed_object_id', 'object_repr'))
+            model = ContentType.objects.get_for_id(t).model_class()
+            objects = model.objects.in_bulk(ids) if model is not None else {}
+            for i in ids:
+                obj = objects.get(i)
+                out[(t, i)] = {
+                    'repr': str(obj) if obj is not None else reprs.get(i),
+                    'url': obj.get_absolute_url() if obj is not None and hasattr(obj, 'get_absolute_url') else None,
+                }
+        return out
+
+    # API for Grafana
+
+    def activity(self, group, limit=10):
+        """Flat rows for the REST API: group is 'day', 'week', 'user' or 'type'."""
+        return self._cached(f'activity-{group}-{limit}', lambda: self._activity_no_jit(group, limit))
+
+    def _activity_no_jit(self, group, limit):
+        with no_jit():
+            return self._activity(group, limit)
+
+    def _activity(self, group, limit):
+        def counts(r):
+            return {
+                'change_sets': r['change_sets'], 'changes': r['records'],
+                'created': r['create'], 'updated': r['update'], 'deleted': r['delete'],
+            }
+
+        if group in ('day', 'week'):
+            rows = {r['k4']: r for r in self.primary_groups((group,))[group]}
+            trunc = TruncDay if group == 'day' else TruncWeek
+            records = dict(self.records().annotate(b=trunc('time', tzinfo=self.tz)).order_by().values('b').annotate(
+                n=Count('pk')).values_list('b', 'n'))
+            records = {k.astimezone(self.tz).date(): n for k, n in records.items()}
+            step = timedelta(days=1 if group == 'day' else 7)
+            d = self.flt.start_date
+            if group == 'week':
+                d -= timedelta(days=d.weekday())
+            out = []
+            zero = {'change_sets': 0, 'records': 0, 'create': 0, 'update': 0, 'delete': 0}
+            while d <= self.flt.end_date:
+                out.append({
+                    'time': datetime.combine(d, time.min, self.tz).isoformat(),
+                    **counts(rows.get(d, zero)),
+                    'records': records.get(d, 0),
+                })
+                d += step
+            return out
+        if group == 'user':
+            groups = self.primary_groups(('user',))
+            users = self._users(groups['user'], self.records(), self.automation_user_ids())[:limit]
+            return [
+                {'user': u['user_name'], 'kind': u['kind'], 'user_deleted': u['deleted'], **counts(u | {
+                    'records': u['create'] + u['update'] + u['delete']}), 'records': u['records']}
+                for u in users
+            ]
+        if group == 'type':
+            rows = self._top_types(self.primary_groups(('type',))['type'], limit)
+            return [{'type': r['type_label'], **counts(r)} for r in rows]
+        raise ValueError(group)
+
+    # Contributors
+
+    def contributors(self):
+        return self._cached('contributors', self._contributors_no_jit)
+
+    def _contributors_no_jit(self):
+        with no_jit():
+            return self._contributors()
+
+    def _contributors(self):
+        records = self.records()
+        automation_ids = self.automation_user_ids()
+        groups = self.primary_groups(('user', 'user_type', 'user_week'))
+        users = self._users(groups['user'], records, automation_ids)
+        keys = {_user_key(u) for u in users}
+
+        # First and last change over the whole changelog in scope.
+        span = {}
+        for row in self.scope.values('user_id', 'user_name').annotate(
+            first=Min('time'), last=Max('time'),
+        ).order_by():
+            key = _user_key(row)
+            if key in keys:
+                s = span.setdefault(key, {'first': row['first'], 'last': row['last']})
+                s['first'] = min(s['first'], row['first'])
+                s['last'] = max(s['last'], row['last'])
+
+        # Change sets per week; weeks start on Monday in TIME_ZONE.
+        weeks = []
+        w = self.flt.start_date - timedelta(days=self.flt.start_date.weekday())
+        while w <= self.flt.end_date:
+            weeks.append(w)
+            w += timedelta(days=7)
+        weekly = defaultdict(lambda: defaultdict(int))
+        for row in groups['user_week']:
+            weekly[_user_key({'user_id': row['k1'], 'user_name': row['k2']})][row['k4']] += row['change_sets']
+
+        # Top types per user, by primary records.
+        types = defaultdict(lambda: defaultdict(int))
+        for row in groups['user_type']:
+            types[_user_key({'user_id': row['k1'], 'user_name': row['k2']})][row['k3']] += row['records']
+        ct = ContentType.objects.in_bulk({t for v in types.values() for t in v})
+
+        for u in users:
+            key = _user_key(u)
+            u.update(span.get(key, {'first': None, 'last': None}))
+            u['weekly'] = [weekly[key].get(w, 0) for w in weeks]
+            top = sorted(types[key].items(), key=lambda kv: -kv[1])[:3]
+            u['top_types'] = [
+                {
+                    'type_label': type_label(ct.get(t), include_app=False), 'records': n,
+                    'changelog_url': self._user_changelog_url(u, changed_object_type_id=t),
+                }
+                for t, n in top
+            ]
+            u['action_urls'] = {a: self._user_changelog_url(u, action=a) for a in ACTIONS}
+        return {'users': users, 'weeks': weeks}
