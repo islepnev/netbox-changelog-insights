@@ -66,6 +66,8 @@ class InsightsFilter:
     action: str | None = None
     kind: str | None = None
     errors: dict = field(default_factory=dict)
+    # Ids of the users of the selected actor kind, for links to the core changelog.
+    kind_user_ids: list | None = None
 
     @classmethod
     def from_request(cls, request, now=None):
@@ -154,8 +156,11 @@ class InsightsFilter:
         Link to the core changelog list with the same filter (design decision 6).
         extra: core filter parameters (user_id, user_name, action, changed_object_type_id,
         request_id, changed_object_id) that refine this filter. user_ids: list of user ids,
-        for a filter by actor kind.
+        for a filter by actor kind; default: kind_user_ids. The core changelog cannot
+        select deleted users by kind.
         """
+        if user_ids is None and self.kind:
+            user_ids = self.kind_user_ids
         fmt = '%Y-%m-%d %H:%M:%S'
         p = [
             ('time_after', self.start.strftime(fmt)),

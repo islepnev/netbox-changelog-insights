@@ -6,7 +6,7 @@ from ipam.models import IPAddress
 from users.models import User
 
 from netbox_changelog_insights.folding import (
-    FOLD_CABLE, FOLD_CABLE_FIELDS, FOLD_RELATED, FOLD_REPEAT, annotate_fold, fold_tree,
+    FOLD_CABLE, FOLD_CABLE_FIELDS, FOLD_PRIMARY_IP, FOLD_RELATED, FOLD_REPEAT, annotate_fold, fold_tree,
 )
 
 from .utils import change_set, make_inventory, records
@@ -109,6 +109,28 @@ class FoldingTestCase(TestCase):
         (root, folded), = fold_tree(rows)
         self.assertEqual(root.action, 'delete')
         self.assertEqual(len(folded), 4)
+
+    def test_primary_ip_update_folds_into_ip(self):
+        """"Make this the primary IP": the device update is a side effect of the IP create."""
+        dev = Device.objects.get(pk=self.inv['d1'].pk)
+        iface = self.ifaces(dev)[0]
+        with change_set(self.user) as rid:
+            ip = IPAddress.objects.create(address='10.0.0.7/24', assigned_object=iface)
+            dev.snapshot()
+            dev.primary_ip4 = ip
+            dev.save()
+        self.assertEqual(primary(rid), [('ipaddress', 'create')])
+        rows, _ = fold(rid)
+        (root, folded), = fold_tree(rows)
+        self.assertEqual([rule for _, rule, _ in folded], [FOLD_PRIMARY_IP])
+        # A device update that also changes another field stays primary.
+        with change_set(self.user) as rid:
+            ip2 = IPAddress.objects.create(address='10.0.0.8/24', assigned_object=iface)
+            dev.snapshot()
+            dev.primary_ip4 = ip2
+            dev.serial = 'X1'
+            dev.save()
+        self.assertEqual(primary(rid), [('device', 'update'), ('ipaddress', 'create')])
 
     def test_ip_assigned_to_existing_interface_is_primary(self):
         iface = self.ifaces(self.inv['d1'])[0]
