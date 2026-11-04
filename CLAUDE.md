@@ -26,6 +26,8 @@
 
 ## Commits and PRs
 - Commit message: one short line in the language of previous messages; no body, no `Co-Authored-By`, no session links, no "Generated with" lines.
+- Commit author: the owner, `Ilia Slepnev <islepnev@gmail.com>`; committer: Claude (`git commit --author=...`).
+- Repository, commits and PRs use synthetic data only; README has no performance figures.
 - PR: short title; body of terse bullets grouped under plain labels (Map, Search, Other); no headings, footers, links or emojis.
 - After posting a PR or comment, read it back and remove anything a tool appended.
 - Keep history linear: branch from the current default branch, no merge commits.
