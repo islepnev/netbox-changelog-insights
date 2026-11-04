@@ -14,7 +14,7 @@ __all__ = (
     'ActivityView',
 )
 
-GROUPS = ('day', 'week', 'user', 'type')
+GROUPS = ('day', 'week', 'user', 'type', 'site', 'tenant')
 MAX_LIMIT = 100
 
 
@@ -29,10 +29,11 @@ class ActivityView(APIView):
     """
     GET /api/plugins/changelog-insights/activity/?group=day&from=<ms>&to=<ms>
 
-    group: day, week (time series), user or type (top list). from, to: milliseconds since the
-    epoch (Grafana ${__from} and ${__to}); the range covers whole days in TIME_ZONE. Without
-    them: period (7, 30, 90, custom), start, end, as on the pages. Filters: user_id,
-    user_name, type_id, action, kind (person, automation; all: no filter). limit: rows of a top list (default 10, at most 100).
+    group: day, week (time series), user, type, site or tenant (top list). from, to: milliseconds
+    since the epoch (Grafana ${__from} and ${__to}); the range covers whole days in TIME_ZONE.
+    Without them: period (7, 30, 90, custom), start, end, as on the pages. Filters: user_id,
+    user_name, type_id, action, kind (person, automation; all: no filter), site_id, tenant_id.
+    limit: rows of a top list (default 10, at most 100).
     Counts are primary changes; "records" counts all records, folded included. The
     setting max_period_days applies; the header X-Period-Cut-From then names the first day asked for.
     Authentication: a NetBox API token ("Authorization: Bearer nbt_<key>.<token>" or

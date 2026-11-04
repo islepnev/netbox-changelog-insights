@@ -28,6 +28,11 @@ menu = PluginMenu(
                 permissions=PERMISSIONS,
             ),
             PluginMenuItem(
+                link='plugins:netbox_changelog_insights:scope',
+                link_text='Scope',
+                permissions=PERMISSIONS,
+            ),
+            PluginMenuItem(
                 link='plugins:netbox_changelog_insights:chains',
                 link_text='Chains',
                 permissions=PERMISSIONS,

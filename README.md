@@ -17,6 +17,7 @@ A NetBox plugin. Reads the changelog in place: no models, no migrations, no copy
 - **Contributors.** Per user: change sets, created, updated and deleted objects, a weekly trend, top object types, first and last change. Split people from automation with one user group.
 - **Activity.** Primary changes per day or week, split by action, user, app or object type, and change sets by weekday and hour: when people work and when automation runs. Click a group to drill down.
 - **Hotspots.** The most changed objects and fields; click a field to see its values before and after.
+- **Scope.** Activity per site or per tenant: change sets, actions, objects, users, a weekly trend, top object types. Click a site or tenant to filter every page by it.
 - **Chains.** The change sets about one device or virtual machine over days, for example the onboarding of a server: stages, duration, who took part.
 - **Grafana.** The same aggregates over the REST API, and a ready row of panels for the Infinity data source.
 
@@ -37,6 +38,8 @@ The unit is the change set: the records of one request (`request_id`). Side effe
 ![A change set of six records: a new cable is the primary change; its extra update, two terminations and the cable fields of two interfaces fold into it](docs/img/change-set.svg)
 
 Records fold when they are a further record of the same object, components created with their device, cable terminations and cable-only updates of a new cable, or a primary IP update made with its IP address. The rules and their checks are in [docs/design.md](docs/design.md).
+
+The site of a record comes from the object, its device or virtual machine, or the interface an IP address is assigned to; the tenant from the object, else its device or virtual machine (design decision 12).
 
 ## Requirements
 
@@ -80,9 +83,9 @@ The pages and the API require `core.view_objectchange`, as the core changelog, a
 
 | Parameter | Values |
 |---|---|
-| `group` | `day`, `week` (time series), `user`, `type` (top lists) |
+| `group` | `day`, `week` (time series), `user`, `type`, `site`, `tenant` (top lists) |
 | `from`, `to` | Milliseconds since the epoch: Grafana `${__from}`, `${__to}`. Or `period` (`7`, `30`, `90`, `custom`) with `start`, `end` |
-| `user_id`, `user_name`, `type_id`, `action`, `kind` | Filters; `kind`: `person`, `automation` or `all` |
+| `user_id`, `user_name`, `type_id`, `action`, `kind`, `site_id`, `tenant_id` | Filters; `kind`: `person`, `automation` or `all` |
 | `limit` | Rows of a top list: default 10, at most 100 |
 
 ```bash
@@ -102,7 +105,7 @@ curl -H "Authorization: Bearer nbt_<key>.<token>" \
 ## Limitations
 
 - The core changelog list cannot filter by fold: a link from a count of primary changes opens a list that also holds the folded records.
-- No grouping by site or tenant yet.
+- The core changelog cannot filter by site or tenant: a link from a page with that filter opens a list without it.
 - Changes merged from `netbox_branching` are not treated in a special way.
 - Reach is bounded by `CHANGELOG_RETENTION`; every page shows the oldest available record.
 

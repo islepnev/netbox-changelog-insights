@@ -35,7 +35,7 @@ Typical shape of a changelog: most change sets hold one record; automation accou
 | Code frequency | Creates vs deletes per week: inventory growth | `action`, `time` |
 | Hotspots (blame) | Most changed objects and fields | diff |
 
-Dimensions for grouping and filtering: period, actor, actor kind, app, model, action, change set, field (updates only). Scope (site, tenant) is a later phase.
+Dimensions for grouping and filtering: period, actor, actor kind, app, model, action, change set, field (updates only), site, tenant.
 
 ## Decisions
 
@@ -51,6 +51,8 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 10. No models in v1, hence no migrations. `min_version` 4.6.0.
 11. Chains: change sets about one device or virtual machine (the root) over time, for example the onboarding of a server. The root of a record is the device or VM itself, its related object, the `device` or `virtual_machine` field of its data, or the component it is attached to (cable terminations, IP and MAC addresses, FHRP assignments); a cable has the roots of its terminations. Change sets on one root join a chain when the gap is up to `chain_gap_hours` (default 168); a gap longer than `automation_gap_hours` (default 24) joins only if a person's change set follows within the chain gap, so that automation work joins a chain but periodic syncs do not stretch it. Chains are not joined through cables. Checked with `tools/chain_audit.py`: most primary records have a root; most gaps are under an hour; onboarding goes on with IP addresses days later; joining through cables forms groups of hundreds of chains.
 
+12. Scope: the site and the tenant of a record are SQL expressions over the record, so that filters and groups stay in the database (decision 1). Site: the site itself; else the `site` field of the data; else the `_site` field that NetBox caches on components, cable terminations, prefixes and clusters; else the site of its device or virtual machine (the related object, the `device` or `virtual_machine` field, `_device` of a cable termination, or the interface an IP or MAC address is assigned to); else, for a cable, the `_site` of its terminations in the same change set, then of its current terminations. Tenant: the tenant itself; else the `tenant` field; else the tenant of the device or virtual machine. A device or virtual machine is read from its current row, else from its latest record (a deleted device). A chain is in the site and tenant of its root. A change set that touches several sites counts in each. The core changelog cannot filter by site or tenant: its links drop that filter.
+
 ## Pages, ranked by value against effort
 
 | Page | Content | Size |
@@ -62,7 +64,7 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 | Actor kind | Person/automation split on all pages | S |
 | Hotspots | Most changed objects; most changed fields per model; values before and after per field (done) | M |
 | API | Aggregates over REST for Grafana: `activity/` by day, week, user, type; Grafana row in `docs/grafana-row.json` (done) | S |
-| Scope | Grouping by site and tenant, resolved from object data or the related object | L |
+| Scope | Per site or tenant: change sets, actions, objects, users, weekly trend, top types; site and tenant filter on all pages and the API (done) | L |
 
 ## Out of scope
 

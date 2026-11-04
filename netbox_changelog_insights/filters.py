@@ -53,6 +53,8 @@ class InsightsFilterForm(forms.Form):
         choices=[('', ''), (KIND_PERSON, _('Person')), (KIND_AUTOMATION, _('Automation'))],
         required=False,
     )
+    site_id = forms.IntegerField(required=False, min_value=1)
+    tenant_id = forms.IntegerField(required=False, min_value=1)
     onboarding = forms.BooleanField(required=False)
 
 
@@ -67,6 +69,8 @@ class InsightsFilter:
     type_id: int | None = None
     action: str | None = None
     kind: str | None = None
+    site_id: int | None = None
+    tenant_id: int | None = None
     onboarding: bool = False
     errors: dict = field(default_factory=dict)
     # Ids of the users of the selected actor kind, for links to the core changelog.
@@ -115,6 +119,8 @@ class InsightsFilter:
             type_id=data.get('type_id'),
             action=data.get('action') or None,
             kind=data.get('kind') or None,
+            site_id=data.get('site_id'),
+            tenant_id=data.get('tenant_id'),
             onboarding=bool(data.get('onboarding')),
             cut_from=cut_from,
             errors=dict(form.errors) if not valid else {},
@@ -144,8 +150,25 @@ class InsightsFilter:
         return None
 
     @property
+    def site(self):
+        return self._scope_object('dcim', 'site', self.site_id)
+
+    @property
+    def tenant(self):
+        return self._scope_object('tenancy', 'tenant', self.tenant_id)
+
+    @staticmethod
+    def _scope_object(app, model, pk):
+        """Name of a site or tenant; "#id" when it does not exist any more."""
+        if not pk:
+            return None
+        ct = ContentType.objects.get_by_natural_key(app, model)
+        obj = ct.model_class().objects.filter(pk=pk).first()
+        return str(obj) if obj is not None else f'#{pk}'
+
+    @property
     def is_filtered(self):
-        return any((self.user_id, self.user_name, self.type_id, self.action, self.kind))
+        return any((self.user_id, self.user_name, self.type_id, self.action, self.kind, self.site_id, self.tenant_id))
 
     # Query strings
 
@@ -155,7 +178,7 @@ class InsightsFilter:
         if self.period == 'custom':
             p['start'] = self.start_date.isoformat()
             p['end'] = self.end_date.isoformat()
-        for key in ('user_id', 'user_name', 'type_id', 'action', 'kind'):
+        for key in ('user_id', 'user_name', 'type_id', 'action', 'kind', 'site_id', 'tenant_id'):
             if getattr(self, key):
                 p[key] = getattr(self, key)
         if self.onboarding:
@@ -176,7 +199,8 @@ class InsightsFilter:
         extra: core filter parameters (user_id, user_name, action, changed_object_type_id,
         request_id, changed_object_id) that refine this filter. user_ids: list of user ids,
         for a filter by actor kind; default: kind_user_ids. The core changelog cannot
-        select deleted users by kind.
+        select deleted users by kind, and cannot filter by site or tenant: the link drops
+        that filter.
         """
         if user_ids is None and self.kind:
             user_ids = self.kind_user_ids

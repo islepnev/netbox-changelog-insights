@@ -4,5 +4,6 @@
   <li class="nav-item"><a class="nav-link{% if active == 'contributors' %} active{% endif %}" href="{% url 'plugins:netbox_changelog_insights:contributors' %}?{{ tab_query }}">{% trans "Contributors" %}</a></li>
   <li class="nav-item"><a class="nav-link{% if active == 'activity' %} active{% endif %}" href="{% url 'plugins:netbox_changelog_insights:activity' %}?{{ tab_query }}">{% trans "Activity" %}</a></li>
   <li class="nav-item"><a class="nav-link{% if active == 'hotspots' %} active{% endif %}" href="{% url 'plugins:netbox_changelog_insights:hotspots' %}?{{ tab_query }}">{% trans "Hotspots" %}</a></li>
+  <li class="nav-item"><a class="nav-link{% if active == 'scope' %} active{% endif %}" href="{% url 'plugins:netbox_changelog_insights:scope' %}?{{ tab_query }}">{% trans "Scope" %}</a></li>
   <li class="nav-item"><a class="nav-link{% if active == 'chains' %} active{% endif %}" href="{% url 'plugins:netbox_changelog_insights:chains' %}?{{ tab_query }}">{% trans "Chains" %}</a></li>
 </ul>

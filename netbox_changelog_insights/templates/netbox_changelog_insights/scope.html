@@ -1,0 +1,86 @@
+{% extends 'generic/_base.html' %}
+{% load i18n insights %}
+
+{% block title %}{% trans "Scope" %}{% endblock %}
+{% block head %}{% include 'netbox_changelog_insights/inc/head.html' %}{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary">{% trans "Activity per site or tenant of the changed objects. Counts are primary changes; side effects are folded." %}</div>
+{% endblock %}
+
+{% block tabs %}{% include 'netbox_changelog_insights/inc/tabs.html' with active='scope' %}{% endblock %}
+
+{% block content %}
+  {% include 'netbox_changelog_insights/inc/filter_bar.html' %}
+  <div class="card">
+    <div class="card-header flex-wrap gap-2">
+      <h2 class="card-title">
+        {% if by == 'site' %}{% blocktrans count n=named %}{{ n }} site{% plural %}{{ n }} sites{% endblocktrans %}{% else %}{% blocktrans count n=named %}{{ n }} tenant{% plural %}{{ n }} tenants{% endblocktrans %}{% endif %}
+        {% if share %}<span class="text-secondary small fw-normal ms-2" title="{% trans 'Share of primary changes that have a value' %}">{% blocktrans with s=share %}{{ s }} of primary changes{% endblocktrans %}</span>{% endif %}
+      </h2>
+      <div class="card-actions btn-group" role="group" aria-label="{% trans 'Group by' %}">
+        {% for key, label, url in by_urls %}
+          <a href="{{ url }}" class="btn btn-sm {% if by == key %}btn-primary{% else %}btn-outline-primary{% endif %}">{% trans label %}</a>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover card-table mb-0 insights-compact">
+        <thead>
+          <tr>
+            <th>{% trans by_label %}</th>
+            <th class="text-end">{% trans "Change sets" %}</th>
+            <th class="text-end">{% trans "Created" %}</th>
+            <th class="text-end">{% trans "Updated" %}</th>
+            <th class="text-end">{% trans "Deleted" %}</th>
+            <th class="text-end" title="{% trans 'Objects with a primary change' %}">{% trans "Objects" %}</th>
+            <th class="text-end">{% trans "Users" %}</th>
+            <th title="{% trans 'Change sets per week; dashed: a week that the period covers in part' %}">{% trans "Weekly" %}</th>
+            <th>{% trans "Top types" %}</th>
+            <th>{% trans "Last change" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in groups %}
+            <tr{% if g.key is None %} class="text-secondary"{% endif %}>
+              <td class="text-nowrap">
+                {% if g.key is None %}
+                  <span title="{% trans 'Records whose object has no site or tenant, or none that can be found' %}">{% if by == 'site' %}{% trans "No site" %}{% else %}{% trans "No tenant" %}{% endif %}</span>
+                {% else %}
+                  <a href="{{ g.filter_url }}" title="{% trans 'Pulse of this scope' %}">{{ g.name }}</a>
+                  {% if g.url %}<a href="{{ g.url }}" class="text-secondary ms-1" title="{% trans 'Open the object' %}"><i class="mdi mdi-open-in-new"></i></a>{% endif %}
+                {% endif %}
+              </td>
+              <td class="text-end">{% if g.activity_url %}<a href="{{ g.activity_url }}" title="{% trans 'Activity of this scope, by user' %}">{{ g.change_sets }}</a>{% else %}{{ g.change_sets }}{% endif %}</td>
+              <td class="text-end text-green">{{ g.create }}</td>
+              <td class="text-end text-blue">{{ g.update }}</td>
+              <td class="text-end text-red">{{ g.delete }}</td>
+              <td class="text-end">{{ g.objects }}</td>
+              <td class="text-end">{{ g.users }}</td>
+              <td>
+                {% if g.sparkline %}
+                  <svg class="insights-sparkline" width="{{ g.sparkline.width }}" height="{{ g.sparkline.height }}" viewBox="0 0 {{ g.sparkline.width }} {{ g.sparkline.height }}" role="img" aria-label="{% trans 'Change sets per week' %}">
+                    <title>{{ g.sparkline.title }}</title>
+                    {% for seg in g.sparkline.solid %}<polyline points="{{ seg }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>{% endfor %}
+                    {% for seg in g.sparkline.dashed %}<polyline points="{{ seg }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2" opacity=".6"/>{% endfor %}
+                  </svg>
+                {% endif %}
+              </td>
+              <td class="small">
+                {% for t in g.top_types %}<div class="text-nowrap">{% if t.filter_url %}<a href="{{ t.filter_url }}" class="text-reset">{{ t.type_label }}</a>{% else %}{{ t.type_label }}{% endif %} <span class="text-secondary">{{ t.records }}</span></div>{% endfor %}
+              </td>
+              <td class="text-nowrap small" title="{{ g.last|date:'Y-m-d H:i' }}">{{ g.last|date:"Y-m-d" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="10" class="text-secondary text-center py-4">{% trans "No changes in this period" %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="small text-secondary mt-2">
+    {% trans "A change set that touches several sites or tenants (a cable between two sites) counts in each, so the rows can add up to more than the total." %}
+    {% if total.change_sets %}{% blocktrans with n=total.change_sets %}Total: {{ n }} change sets.{% endblocktrans %}{% endif %}
+    {% trans "The site comes from the object, its device or virtual machine, or the interface it is assigned to; the tenant from the object, else its device or virtual machine." %}
+  </div>
+{% endblock %}

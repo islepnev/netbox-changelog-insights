@@ -22,6 +22,7 @@ from .filters import KIND_AUTOMATION, KIND_PERSON, changeset_changelog_url, loca
 from .chains import DEVICE, STAGES, build_chains
 from .folding import DIFF_IGNORED_FIELDS, annotate_fold
 from .labels import type_label
+from .scope import SCOPES, root_scopes, scope_expression, scope_sql
 
 __all__ = (
     'Insights',
@@ -162,6 +163,11 @@ class Insights:
                     qs = qs.filter(user_id__in=ids)
                 else:
                     qs = qs.exclude(user_id__in=ids)
+        # Site and tenant (design decision 12): an expression per record, evaluated in the database.
+        for scope in SCOPES:
+            value = getattr(flt, f'{scope}_id')
+            if value:
+                qs = qs.alias(**{f'scope_{scope}': scope_expression(scope)}).filter(**{f'scope_{scope}': value})
         return qs
 
     def primary(self):
@@ -404,8 +410,17 @@ class Insights:
                 return False
             if flt.kind == KIND_PERSON and not (ids - automation_ids or names):
                 return False
+            for scope in SCOPES:
+                value = getattr(flt, f'{scope}_id')
+                if value and root_scope[scope].get(c.root) != value:
+                    return False
             return True
 
+        # A chain is in the site and tenant of its root (the device or virtual machine).
+        root_scope = {
+            scope: root_scopes({c.root for c in chains}, scope) if getattr(flt, f'{scope}_id') else {}
+            for scope in SCOPES
+        }
         chains = sorted((c for c in chains if keep(c)), key=lambda c: c.start, reverse=True)
         onboarding = [c for c in chains if c.onboarding]
         multi = [c for c in chains if len(c.sets) > 1]
@@ -477,6 +492,101 @@ class Insights:
                     'url': obj.get_absolute_url() if obj is not None and hasattr(obj, 'get_absolute_url') else None,
                 }
         return out
+
+    # Scope page (design decision 12)
+
+    def scope_page(self, scope, top=3):
+        return self._cached(f'scope-{scope}-{top}', lambda: self._scope_page_no_jit(scope, top))
+
+    def _scope_page_no_jit(self, scope, top):
+        with no_jit():
+            return self._scope_page(scope, top)
+
+    def _scope_rows(self, scope):
+        """
+        Primary records grouped by site or tenant, in one statement: totals ("g"), change sets
+        per week ("w") and primary records per object type ("t"). Key NULL: no site or tenant.
+        """
+        sql, params = self.primary().values(*PRIMARY_COLUMNS).order_by().query.sql_with_params()
+        # The scope expression reads the outer row as "core_objectchange": select it over the
+        # primary ids, so that it is evaluated once per primary record.
+        scoped = (
+            f'SELECT p0.*, {scope_sql(scope)} AS s '
+            f'FROM ({sql}) AS p0 JOIN core_objectchange ON core_objectchange.id = p0.id'
+        )
+        tz = str(self.tz)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"WITH p AS MATERIALIZED ({scoped}) "
+                f"SELECT 'g', s, NULL::date, NULL::bigint, count(*), count(DISTINCT request_id), "
+                f"count(*) FILTER (WHERE action = 'create'), count(*) FILTER (WHERE action = 'update'), "
+                f"count(*) FILTER (WHERE action = 'delete'), "
+                f"count(DISTINCT (changed_object_type_id, changed_object_id)), "
+                f"count(DISTINCT coalesce(user_id::text, user_name)), max(time) FROM p GROUP BY s "
+                f"UNION ALL SELECT 'w', s, date_trunc('week', time AT TIME ZONE %s)::date, NULL, "
+                f"count(DISTINCT request_id), NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM p GROUP BY 2, 3 "
+                f"UNION ALL SELECT 't', s, NULL, changed_object_type_id, count(*), NULL, NULL, NULL, NULL, NULL, NULL, "
+                f"NULL FROM p GROUP BY 2, 4 "
+                f"UNION ALL SELECT 'a', NULL, NULL, NULL, count(*), count(DISTINCT request_id), NULL, NULL, NULL, NULL, "
+                f"NULL, NULL FROM p",
+                list(params) + [tz],
+            )
+            return cursor.fetchall()
+
+    def _scope_labels(self, scope, ids):
+        """Name and URL of each site or tenant; a deleted one: the name of its latest record."""
+        from dcim.models import Site
+        from tenancy.models import Tenant
+        model = {'site': Site, 'tenant': Tenant}[scope]
+        objects = model.objects.in_bulk(ids)
+        missing = set(ids) - set(objects)
+        reprs = {}
+        if missing:
+            ct = ContentType.objects.get_for_model(model)
+            for rec in self.scope.filter(changed_object_type=ct, changed_object_id__in=missing).order_by(
+                    'changed_object_id', '-pk').distinct('changed_object_id'):
+                reprs[rec.changed_object_id] = rec.object_repr
+        return {
+            i: {'name': str(objects[i]) if i in objects else reprs.get(i, f'#{i}'),
+                'url': objects[i].get_absolute_url() if i in objects else None}
+            for i in ids
+        }
+
+    def _scope_page(self, scope, top):
+        """Per site or tenant: change sets, primary changes by action, objects, users, weekly trend, top types."""
+        result = self._scope_rows(scope)
+        weeks = []
+        w = self.flt.start_date - timedelta(days=self.flt.start_date.weekday())
+        while w <= self.flt.end_date:
+            weeks.append(w)
+            w += timedelta(days=7)
+        weekly, types = defaultdict(dict), defaultdict(list)
+        total = {'records': 0, 'change_sets': 0}
+        groups = []
+        for tag, key, week, type_id, n, sets, create, update, delete, objects, users, last in result:
+            if tag == 'g':
+                groups.append({
+                    'key': key, 'records': n, 'change_sets': sets, 'create': create, 'update': update,
+                    'delete': delete, 'objects': objects, 'users': users, 'last': last,
+                })
+            elif tag == 'w':
+                weekly[key][week] = n
+            elif tag == 't':
+                types[key].append((type_id, n))
+            else:
+                total = {'records': n, 'change_sets': sets}
+        labels = self._scope_labels(scope, [g['key'] for g in groups if g['key'] is not None])
+        ct = ContentType.objects.in_bulk({t for v in types.values() for t, _ in v})
+        for g in groups:
+            g.update(labels.get(g['key'], {'name': None, 'url': None}))
+            g['weekly'] = [weekly[g['key']].get(w, 0) for w in weeks]
+            g['top_types'] = [
+                {'type_id': t, 'type_label': type_label(ct.get(t), include_app=False), 'records': n}
+                for t, n in sorted(types[g['key']], key=lambda tn: (-tn[1], tn[0]))[:top]
+            ]
+        # Most change sets first; the records without a site or tenant last.
+        groups.sort(key=lambda g: (g['key'] is None, -g['change_sets'], -g['records'], str(g['name'])))
+        return {'groups': groups, 'weeks': weeks, 'total': total}
 
     # Activity page
 
@@ -678,7 +788,7 @@ class Insights:
     # API for Grafana
 
     def activity(self, group, limit=10):
-        """Flat rows for the REST API: group is 'day', 'week', 'user' or 'type'."""
+        """Flat rows for the REST API: group is 'day', 'week', 'user', 'type', 'site' or 'tenant'."""
         return self._cached(f'activity-{group}-{limit}', lambda: self._activity_no_jit(group, limit))
 
     def _activity_no_jit(self, group, limit):
@@ -723,6 +833,10 @@ class Insights:
         if group == 'type':
             rows = self._top_types(self.primary_groups(('type',))['type'], limit)
             return [{'type': r['type_label'], **counts(r)} for r in rows]
+        if group in SCOPES:
+            # Records without a site or tenant: one row with the name null, in its place by count.
+            rows = sorted(self._scope_page(group, 0)['groups'], key=lambda g: (-g['change_sets'], -g['records']))
+            return [{group: g['name'], f'{group}_id': g['key'], **counts(g)} for g in rows[:limit]]
         raise ValueError(group)
 
     # Contributors

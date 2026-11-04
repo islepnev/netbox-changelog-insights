@@ -23,6 +23,7 @@ __all__ = (
     'ChangeSetView',
     'ContributorsView',
     'PulseView',
+    'ScopeView',
 )
 
 
@@ -66,6 +67,7 @@ class InsightsView(AccessMixin, View):
             'period_urls': [(str(p), flt.url(self.viewname, period=p, start=None, end=None)) for p in PERIODS],
             'clear_url': flt.url(
                 self.viewname, user_id=None, user_name=None, type_id=None, action=None, kind=None, onboarding=None,
+                site_id=None, tenant_id=None,
             ),
         }
 
@@ -147,7 +149,8 @@ class ActivityView(InsightsView):
             (str(p), flt.url(self.viewname, period=p, start=None, end=None, **extra)) for p in PERIODS
         ]
         context['clear_url'] = flt.url(
-            self.viewname, user_id=None, user_name=None, type_id=None, action=None, kind=None, onboarding=None, **extra,
+            self.viewname, user_id=None, user_name=None, type_id=None, action=None, kind=None, onboarding=None,
+            site_id=None, tenant_id=None, **extra,
         )
         context.update({
             'by': by,
@@ -157,6 +160,52 @@ class ActivityView(InsightsView):
             'extra_params': extra,
             'by_urls': [(k, label, flt.url(self.viewname, by=k, bucket=bucket)) for k, label in self.dimensions],
             'bucket_urls': [(b, flt.url(self.viewname, by=by, bucket=b)) for b in ('day', 'week')],
+        })
+        return render(request, self.template_name, context)
+
+
+class ScopeView(InsightsView):
+    """Activity per site or per tenant (design decision 12)."""
+    template_name = 'netbox_changelog_insights/scope.html'
+    viewname = 'plugins:netbox_changelog_insights:scope'
+    dimensions = (('site', 'Site'), ('tenant', 'Tenant'))
+
+    def get(self, request):
+        flt = InsightsFilter.from_request(request)
+        by = request.GET.get('by')
+        by = by if by in dict(self.dimensions) else 'site'
+        insights = Insights(request.user, flt)
+        data = insights.scope_page(by)
+        peak = max((max(g['weekly'], default=0) for g in data['groups']), default=0)
+        pulse = 'plugins:netbox_changelog_insights:pulse'
+        for g in data['groups']:
+            g['sparkline'] = charts.sparkline(g['weekly'], peak, data['weeks'], flt.start_date, flt.end_date)
+            if g['key'] is not None:
+                g['filter_url'] = flt.url(pulse, **{f'{by}_id': g['key']})
+                g['activity_url'] = flt.url('plugins:netbox_changelog_insights:activity', by='user',
+                                            **{f'{by}_id': g['key']})
+                for t in g['top_types']:
+                    t['filter_url'] = flt.url(pulse, type_id=t['type_id'], **{f'{by}_id': g['key']})
+        total = data['total']
+        scoped = sum(g['records'] for g in data['groups'] if g['key'] is not None)
+        context = self.base_context(request, flt, insights)
+        extra = {'by': by}
+        context['period_urls'] = [
+            (str(p), flt.url(self.viewname, period=p, start=None, end=None, **extra)) for p in PERIODS
+        ]
+        context['clear_url'] = flt.url(
+            self.viewname, user_id=None, user_name=None, type_id=None, action=None, kind=None, onboarding=None,
+            site_id=None, tenant_id=None, **extra,
+        )
+        context.update({
+            'by': by,
+            'by_label': dict(self.dimensions)[by],
+            'extra_params': extra,
+            'groups': data['groups'],
+            'named': sum(1 for g in data['groups'] if g['key'] is not None),
+            'total': total,
+            'share': f'{100 * scoped / total["records"]:.0f}%' if total['records'] else None,
+            'by_urls': [(k, label, flt.url(self.viewname, by=k)) for k, label in self.dimensions],
         })
         return render(request, self.template_name, context)
 
@@ -203,7 +252,8 @@ class FieldChangesView(InsightsView):
             'hotspots_url': flt.url('plugins:netbox_changelog_insights:hotspots'),
             'period_urls': [(str(p), flt.url(self.viewname, period=p, start=None, end=None, field=field))
                             for p in PERIODS],
-            'clear_url': flt.url(self.viewname, user_id=None, user_name=None, action=None, kind=None, field=field),
+            'clear_url': flt.url(self.viewname, user_id=None, user_name=None, action=None, kind=None, site_id=None,
+                                 tenant_id=None, field=field),
         })
         return render(request, self.template_name, context)
 

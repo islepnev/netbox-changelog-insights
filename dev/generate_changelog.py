@@ -14,7 +14,7 @@ Run it inside the NetBox environment, on a development database only:
 
     NETBOX_ROOT=/opt/netbox/netbox python dev/generate_changelog.py --scale 0.25
 
-It deletes no data, but adds users, devices, cables and IP addresses.
+It deletes no data, but adds users, sites, tenants, devices, cables and IP addresses.
 """
 import argparse
 import os
@@ -45,6 +45,7 @@ from dcim.models import (  # noqa: E402
     RearPortTemplate, Site,
 )
 from ipam.models import VLAN, IPAddress, Prefix  # noqa: E402
+from tenancy.models import Tenant  # noqa: E402
 from netbox.context_managers import event_tracking  # noqa: E402
 from users.models import Group, User  # noqa: E402
 from utilities.request import NetBoxFakeRequest  # noqa: E402
@@ -91,7 +92,19 @@ class World:
 
     def __init__(self, rng):
         self.rng = rng
+        # Tenants come from a second generator, so that the other choices stay as without them.
+        self.tenant_rng = random.Random(rng.random())
         self.n = 0
+
+    def site(self):
+        """A site for a new device; sites have unequal shares."""
+        return self.rng.choices(self.site_list, (6, 4, 3, 2, 1))[0]
+
+    def tenant(self, share=0.7):
+        """A tenant for a new object, or None; tenants have unequal shares."""
+        if self.tenant_rng.random() >= share:
+            return None
+        return self.tenant_rng.choices(self.tenant_list, (5, 3, 2))[0]
 
     def name(self, prefix):
         self.n += 1
@@ -103,6 +116,10 @@ class World:
         for i in range(1, 6):
             site, _ = Site.objects.get_or_create(name=f'Site {i}', slug=f'site-{i}')
             self.site_list.append(site)
+        self.tenant_list = []
+        for i in range(1, 4):
+            tenant, _ = Tenant.objects.get_or_create(name=f'Tenant {i}', slug=f'tenant-{i}')
+            self.tenant_list.append(tenant)
         mf, _ = Manufacturer.objects.get_or_create(name='Generic', slug='generic')
         self.role_switch, _ = DeviceRole.objects.get_or_create(name='Switch', slug='switch', color='2196f3')
         self.role_server, _ = DeviceRole.objects.get_or_create(name='Server', slug='server', color='4caf50')
@@ -126,7 +143,8 @@ class World:
             else:
                 dt, role = self.dt_panel, self.role_panel
             Device.objects.create(
-                name=f'base-{i:04d}', device_type=dt, role=role, site=self.rng.choice(self.site_list),
+                name=f'base-{i:04d}', device_type=dt, role=role, site=self.site(),
+                tenant=self.tenant(),
             )
         self.prefix, _ = Prefix.objects.get_or_create(prefix='10.0.0.0/8')
         self.ip_counter = IPAddress.objects.count() + 1
@@ -211,12 +229,15 @@ def op_device_update(w, msg):
 
 def op_device_create(w, msg):
     dt, role = (w.dt_switch, w.role_switch) if w.rng.random() < 0.4 else (w.dt_server, w.role_server)
-    Device.objects.create(name=w.name('dev'), device_type=dt, role=role, site=w.rng.choice(w.site_list))
+    Device.objects.create(
+        name=w.name('dev'), device_type=dt, role=role, site=w.site(), tenant=w.tenant(),
+    )
 
 
 def op_patch_panel_create(w, msg):
     Device.objects.create(
-        name=w.name('panel'), device_type=w.dt_panel, role=w.role_panel, site=w.rng.choice(w.site_list),
+        name=w.name('panel'), device_type=w.dt_panel, role=w.role_panel, site=w.site(),
+        tenant=w.tenant(),
     )
 
 
@@ -290,7 +311,7 @@ def op_ip_create(w, msg):
     w.ip_counter += 1
     addr = f'10.{(n >> 16) & 255}.{(n >> 8) & 255}.{n & 255}/24'
     iface = w._random(Interface.objects.all()) if w.rng.random() < 0.6 else None
-    IPAddress.objects.create(address=addr, assigned_object=iface, status='active')
+    IPAddress.objects.create(address=addr, assigned_object=iface, status='active', tenant=w.tenant(0.3))
 
 
 def op_ip_update(w, msg):
@@ -310,7 +331,7 @@ def op_ip_delete(w, msg):
 
 def op_prefix_create(w, msg):
     n = w.rng.randrange(1, 65000)
-    Prefix.objects.get_or_create(prefix=f'10.{n >> 8}.{n & 255}.0/24')
+    Prefix.objects.get_or_create(prefix=f'10.{n >> 8}.{n & 255}.0/24', defaults={'tenant': w.tenant()})
 
 
 def op_vlan_create(w, msg):
@@ -324,8 +345,8 @@ def op_vlan_create(w, msg):
 
 def onboard_create(w, msg, ctx):
     ctx['device'] = Device.objects.create(
-        name=w.name('srv'), device_type=w.dt_switch, role=w.role_server, site=w.rng.choice(w.site_list),
-        status='planned',
+        name=w.name('srv'), device_type=w.dt_switch, role=w.role_server, site=w.site(),
+        tenant=w.tenant(), status='planned',
     ).pk
 
 
