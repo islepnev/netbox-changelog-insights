@@ -60,6 +60,7 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 8. Time buckets and the heatmap use NetBox `TIME_ZONE`.
 9. UI: one "Insights" menu; NetBox templates and theme variables (light and dark); one chart library vendored as a static file, no CDN; the heatmap is an HTML table.
 10. No models in v1, hence no migrations. `min_version` 4.6.0.
+11. Chains: change sets about one device or virtual machine (the root) over time, for example the onboarding of a server. The root of a record is the device or VM itself, its related object, the `device` or `virtual_machine` field of its data, or the component it is attached to (cable terminations, IP and MAC addresses, FHRP assignments); a cable has the roots of its terminations. Change sets on one root join a chain when the gap is up to `chain_gap_hours` (default 168); a gap longer than `automation_gap_hours` (default 24) joins only if a person's change set follows within the chain gap, so that automation work joins a chain but periodic syncs do not stretch it. Chains are not joined through cables. Production data, 90 days (`tools/chain_audit.py`): a root for 91% of primary records; 83% of the gaps under 1 hour; onboarding goes on with IP addresses days later (163 chains, median 6.3 days at a 7-day gap); joining through cables forms groups of over 200 chains.
 
 ## Pages, ranked by value against effort
 
@@ -67,6 +68,7 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 |---|---|---|
 | Pulse | Period (7, 30, 90 days, custom): change sets, records by action, active users by kind, top users, types, objects | M |
 | Contributors | Per user: first and last change, change sets, creates, updates, deletes, weekly sparkline, top types | M |
+| Chains | Chains per device or VM: onboarding filter, stages, duration, users; click shows the change sets | L |
 | Activity | Series over time grouped by one dimension (user, app, model, action); weekday × hour heatmap | M |
 | Actor kind | Person/automation split on all pages | S |
 | Hotspots | Most changed objects; most changed fields per model | M |

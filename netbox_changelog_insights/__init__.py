@@ -16,6 +16,10 @@ class ChangelogInsightsConfig(PluginConfig):
         'automation_group': None,
         # Cache lifetime of aggregates, in seconds. 0 disables the cache.
         'cache_ttl': 300,
+        # Chains: longest gap between change sets on one device or VM, in hours.
+        'chain_gap_hours': 7 * 24,
+        # Chains: longest gap that a change set of an automation account may bridge, in hours.
+        'automation_gap_hours': 24,
     }
 
 
