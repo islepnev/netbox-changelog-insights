@@ -32,11 +32,10 @@
             <th class="text-end">{% trans "Created" %}</th>
             <th class="text-end">{% trans "Updated" %}</th>
             <th class="text-end">{% trans "Deleted" %}</th>
-            <th class="text-end" title="{% trans 'All records, folded included' %}">{% trans "Records" %}</th>
+            <th class="text-end d-none d-xl-table-cell" title="{% trans 'All records, folded included' %}">{% trans "Records" %}</th>
             <th title="{% trans 'Change sets per week' %}">{% trans "Weekly" %}</th>
             <th>{% trans "Top types" %}</th>
-            <th class="text-nowrap">{% trans "First change" %}</th>
-            <th class="text-nowrap">{% trans "Last change" %}</th>
+            <th class="text-nowrap">{% trans "First / last change" %}</th>
           </tr>
         </thead>
         <tbody>
@@ -47,7 +46,7 @@
               <td class="text-end"><a href="{{ u.action_urls.create }}" class="text-green">{{ u.create }}</a></td>
               <td class="text-end"><a href="{{ u.action_urls.update }}" class="text-blue">{{ u.update }}</a></td>
               <td class="text-end"><a href="{{ u.action_urls.delete }}" class="text-red">{{ u.delete }}</a></td>
-              <td class="text-end text-secondary">{{ u.records }}</td>
+              <td class="text-end text-secondary d-none d-xl-table-cell">{{ u.records }}</td>
               <td>
                 {% if u.sparkline %}
                   <svg class="insights-sparkline" width="{{ u.sparkline.width }}" height="{{ u.sparkline.height }}" viewBox="0 0 {{ u.sparkline.width }} {{ u.sparkline.height }}" role="img" aria-label="{% trans 'Change sets per week' %}">
@@ -57,13 +56,15 @@
                 {% endif %}
               </td>
               <td class="small">
-                {% for t in u.top_types %}<a href="{{ t.changelog_url }}" class="text-reset">{{ t.type|type_name:False }}</a> <span class="text-secondary">{{ t.records }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}
+                {% for t in u.top_types %}<div class="text-nowrap"><a href="{{ t.changelog_url }}" class="text-reset">{{ t.type|type_name:False }}</a> <span class="text-secondary">{{ t.records }}</span></div>{% endfor %}
               </td>
-              <td class="text-nowrap small" title="{{ u.first|date:'Y-m-d H:i' }}">{{ u.first|date:"Y-m-d" }}</td>
-              <td class="text-nowrap small" title="{{ u.last|date:'Y-m-d H:i' }}">{{ u.last|date:"Y-m-d" }}</td>
+              <td class="text-nowrap small">
+                <div title="{{ u.first|date:'Y-m-d H:i' }}">{{ u.first|date:"Y-m-d" }}</div>
+                <div title="{{ u.last|date:'Y-m-d H:i' }}">{{ u.last|date:"Y-m-d" }}</div>
+              </td>
             </tr>
           {% empty %}
-            <tr><td colspan="10" class="text-secondary text-center py-4">{% trans "No changes in this period" %}</td></tr>
+            <tr><td colspan="9" class="text-secondary text-center py-4">{% trans "No changes in this period" %}</td></tr>
           {% endfor %}
         </tbody>
       </table>

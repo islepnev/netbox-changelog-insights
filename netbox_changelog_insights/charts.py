@@ -24,7 +24,7 @@ def bar_chart(days, ticks=6):
     return {'bars': bars, 'peak': peak}
 
 
-def sparkline(values, peak, weeks, width=120, height=24):
+def sparkline(values, peak, weeks, width=96, height=24):
     """SVG polyline points for a weekly series, scaled to a shared peak."""
     if not values:
         return None
