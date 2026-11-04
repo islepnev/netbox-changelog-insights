@@ -152,19 +152,19 @@ def fold(changeset, ct_by_id, rules):
     """Return {record id: (rule, parent record id)} for folded records.
 
     Rules, in order of precedence:
-      repeat   a later record for an object that has an earlier record in the set
+      repeat   a record for an object whose main record (create, delete, first update) is another one
       cable    a cable termination, when a cable record is in the set
       cablef   an update that changes only cable fields, when a cable record is in the set
       related  the related object has a record in the set
       module   a component whose module has a create or delete record in the set
     """
+    # Main record of an object: its create, else its delete, else its first update.
+    rank = {'create': 0, 'delete': 1}
     by_obj = {}
-    for r in changeset:
+    for r in sorted(changeset, key=lambda r: (rank.get(r['action'], 2), r['id'])):
         by_obj.setdefault((r['changed_object_type'], r['changed_object_id']), r)
     cables = [r for r in changeset if r['changed_object_type'] == 'dcim.cable']
-    cable_by_id = {}
-    for r in cables:
-        cable_by_id.setdefault(r['changed_object_id'], r)
+    cable_by_id = {k[1]: v for k, v in by_obj.items() if k[0] == 'dcim.cable'}
     folded = {}
     for r in changeset:
         key = (r['changed_object_type'], r['changed_object_id'])
@@ -398,6 +398,24 @@ def main():
         nsets = len({r['request_id'] for r in records if r['user'] == u})
         rows.append((f'user {i}', n, prim, nsets))
     table(out, ['user', 'records', 'primary', 'change sets'], rows)
+
+    # 11. Fields of primary updates in sets with several primary records
+    out.append('## 11. Changed fields of primary updates in sets with more than one primary record')
+    out.append('')
+    c = Counter()
+    for cs in sets.values():
+        prim = [r for r in cs if r['id'] not in main_set]
+        if len(prim) < 2:
+            continue
+        others = ' '.join(sorted({f"{r['changed_object_type'].split('.')[1]}:{r['action']}" for r in prim}))
+        for r in prim:
+            if r['action'] != 'update':
+                continue
+            keys = diff_keys(r)
+            c[(r['changed_object_type'], ','.join(sorted(keys)) if len(keys) <= 6 else f'{len(keys)} fields',
+               others)] += 1
+    table(out, ['type', 'changed fields', 'primary records in set (type:action)', 'records'],
+          [(*k, n) for k, n in c.most_common(25)])
 
     # 10. Empty updates and records with a message
     empty = sum(1 for r in records if r['action'] == 'update' and not diff_keys(r))
