@@ -197,6 +197,32 @@ class ViewTestCase(TestCase):
         r = self.client.get(url, {'period': 'custom', 'start': '2020-01-01'})
         self.assertEqual(r.context['bucket'], 'week')
 
+    def test_hotspots(self):
+        url = reverse('plugins:netbox_changelog_insights:hotspots')
+        self.client.force_login(self.nobody)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.client.force_login(self.viewer)
+        r = self.client.get(url, {'period': '7'})
+        self.assertEqual(r.status_code, 200)
+        objects = {(o['type_label'], o['repr']): o for o in r.context['objects']}
+        # The interface updated by alice and by the deleted user: 2 change sets, 2 users.
+        iface = Interface.objects.filter(device=self.inv['d1']).first()
+        o = objects[('DCIM > Interface', iface.name)]
+        self.assertEqual((o['change_sets'], o['updates'], o['users'], o['parent']), (2, 2, 2, 'd1'))
+        # Fields of primary updates only: the cable fields of the bot's cable are folded.
+        fields = {(f['type_label'], f['field']): f['updates'] for f in r.context['fields']}
+        self.assertEqual(fields, {('DCIM > Interface', 'description'): 2})
+
+        ct = ContentType.objects.get_for_model(Interface)
+        changes = reverse('plugins:netbox_changelog_insights:field_changes')
+        r = self.client.get(changes, {'type_id': ct.pk, 'field': 'description'})
+        self.assertEqual(r.context['total'], 2)
+        self.assertEqual([(x['before'], x['after']) for x in r.context['rows']], [('"x"', '"y"'), ('""', '"x"')])
+        self.assertEqual(r.context['rows'][0]['parent'], 'd1')
+        self.assertEqual(self.client.get(changes, {'field': 'description'}).status_code, 404)
+        r = self.client.get(changes, {'type_id': ct.pk, 'field': 'description', 'user_name': 'gone'})
+        self.assertEqual(r.context['total'], 1)
+
     def test_activity_other_group(self):
         from netbox_changelog_insights.charts import stacked_chart
         from datetime import date

@@ -1,3 +1,4 @@
+import json
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -16,6 +17,8 @@ from .insights import Insights
 
 __all__ = (
     'ActivityView',
+    'FieldChangesView',
+    'HotspotsView',
     'ChainsView',
     'ChangeSetView',
     'ContributorsView',
@@ -156,6 +159,61 @@ class ActivityView(InsightsView):
             'bucket_urls': [(b, flt.url(self.viewname, by=by, bucket=b)) for b in ('day', 'week')],
         })
         return render(request, self.template_name, context)
+
+
+class HotspotsView(InsightsView):
+    template_name = 'netbox_changelog_insights/hotspots.html'
+    viewname = 'plugins:netbox_changelog_insights:hotspots'
+
+    def get(self, request):
+        flt = InsightsFilter.from_request(request)
+        insights = Insights(request.user, flt)
+        data = insights.hotspots()
+        for o in data['objects']:
+            o['filter_url'] = flt.url(self.viewname, type_id=o['type_id'])
+        for f in data['fields']:
+            f['filter_url'] = flt.url(self.viewname, type_id=f['type_id'])
+            f['changes_url'] = flt.url('plugins:netbox_changelog_insights:field_changes', type_id=f['type_id'],
+                                       field=f['field'])
+        context = self.base_context(request, flt, insights)
+        context.update(data)
+        return render(request, self.template_name, context)
+
+
+class FieldChangesView(InsightsView):
+    """Primary updates of one object type that changed one field: core cannot filter by field (decision 6)."""
+    template_name = 'netbox_changelog_insights/field_changes.html'
+    viewname = 'plugins:netbox_changelog_insights:field_changes'
+
+    def get(self, request):
+        flt = InsightsFilter.from_request(request)
+        field = request.GET.get('field', '')[:100]
+        if not flt.type_id or not field:
+            raise Http404
+        insights = Insights(request.user, flt)
+        data = insights.field_changes(flt.type_id, field)
+        for r in data['rows']:
+            r['before'] = _short_json(r['before'])
+            r['after'] = _short_json(r['after'])
+        context = self.base_context(request, flt, insights)
+        context.update(data)
+        context.update({
+            'field': field,
+            'extra_params': {'field': field},
+            'hotspots_url': flt.url('plugins:netbox_changelog_insights:hotspots'),
+            'period_urls': [(str(p), flt.url(self.viewname, period=p, start=None, end=None, field=field))
+                            for p in PERIODS],
+            'clear_url': flt.url(self.viewname, user_id=None, user_name=None, action=None, kind=None, field=field),
+        })
+        return render(request, self.template_name, context)
+
+
+def _short_json(value, limit=120):
+    """A field value as compact JSON text, cut to limit characters; None stays None (field absent)."""
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, separators=(',', ': '))
+    return text if len(text) <= limit else text[:limit - 1] + '…'
 
 
 class ChainsView(InsightsView):

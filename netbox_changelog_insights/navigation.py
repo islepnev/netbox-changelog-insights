@@ -23,6 +23,11 @@ menu = PluginMenu(
                 permissions=PERMISSIONS,
             ),
             PluginMenuItem(
+                link='plugins:netbox_changelog_insights:hotspots',
+                link_text='Hotspots',
+                permissions=PERMISSIONS,
+            ),
+            PluginMenuItem(
                 link='plugins:netbox_changelog_insights:chains',
                 link_text='Chains',
                 permissions=PERMISSIONS,

@@ -69,7 +69,6 @@ def _only_fields_update_sql(fields):
     changed = f'({pre} -> k.key) IS DISTINCT FROM ({post} -> k.key)'
     keys = f'jsonb_each({pre} || {post}) AS k'
     # One of fields changed: plain comparisons, so that the key scan below runs only then
-    # (the key scan is the cost of this test: 90 days of synthetic data, 2.6 s to 1.2 s).
     any_changed = ' OR '.join(f"({pre} -> '{f}') IS DISTINCT FROM ({post} -> '{f}')" for f in fields)
     return (
         f'(({any_changed}) '

@@ -16,6 +16,7 @@ A NetBox plugin. Reads the changelog in place: no models, no migrations, no copy
 - **Pulse.** A period at a glance: change sets, records by action, active people and automation accounts, change sets per day, top users, object types and most changed objects, the latest change sets. Click a change set to see all its records.
 - **Contributors.** Per user: change sets, created, updated and deleted objects, a weekly trend, top object types, first and last change. Split people from automation with one user group.
 - **Activity.** Primary changes per day or week, split by action, user, app or object type, and change sets by weekday and hour: when people work and when automation runs. Click a group to drill down.
+- **Hotspots.** The most changed objects and fields; click a field to see its values before and after.
 - **Chains.** The change sets about one device or virtual machine over days, for example the onboarding of a server: stages, duration, who took part.
 - **Grafana.** The same aggregates over the REST API, and a ready row of panels for the Infinity data source.
 
@@ -69,9 +70,9 @@ All settings are optional: `PLUGINS_CONFIG = {'netbox_changelog_insights': {...}
 | `chain_gap_hours` | `168` | Chains: longest gap between change sets on one device or VM |
 | `automation_gap_hours` | `24` | Chains: longest gap that automation alone may bridge |
 
-## Permissions and performance
+## Permissions
 
-The pages and the API require `core.view_objectchange`, as the core changelog, and show only the records the user may view. Aggregates are SQL over the indexed time range and are cached per filter.
+The pages and the API require `core.view_objectchange`, as the core changelog, and show only the records the user may view. Aggregates are SQL over the indexed time range and are cached per filter; `max_period_days` bounds long periods.
 
 ## API for Grafana
 

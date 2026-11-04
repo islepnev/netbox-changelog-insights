@@ -20,7 +20,7 @@ from netbox.plugins import get_plugin_config
 from . import __version__
 from .filters import KIND_AUTOMATION, KIND_PERSON, changeset_changelog_url, local_tz
 from .chains import DEVICE, STAGES, build_chains
-from .folding import annotate_fold
+from .folding import DIFF_IGNORED_FIELDS, annotate_fold
 from .labels import type_label
 
 __all__ = (
@@ -575,6 +575,105 @@ class Insights:
         for dow, hour, n in heat:
             grid[dow - 1][hour] = n
         return {'groups': groups, 'buckets': buckets, 'heat': grid}
+
+    # Hotspots (design decisions 5 and 6)
+
+    def _changed_fields_sql(self):
+        """SQL and parameters: one row per primary update and field it changed (as ObjectChange.diff())."""
+        sql, params = self.primary().filter(action='update').values(
+            'id', 'time', 'request_id', 'user_id', 'user_name', 'changed_object_type_id', 'changed_object_id',
+            'prechange_data', 'postchange_data',
+        ).order_by().query.sql_with_params()
+        ignored = ', '.join(f"'{f}'" for f in DIFF_IGNORED_FIELDS)
+        pre, post = "COALESCE(u.prechange_data, '{}'::jsonb)", "COALESCE(u.postchange_data, '{}'::jsonb)"
+        fields = (
+            f"SELECT u.*, k.key AS field FROM ({sql}) AS u, jsonb_object_keys({pre} || {post}) AS k(key) "
+            f"WHERE k.key NOT IN ({ignored}) AND left(k.key, 1) <> '_' "
+            f"AND ({pre} -> k.key) IS DISTINCT FROM ({post} -> k.key)"
+        )
+        return fields, list(params)
+
+    def hotspots(self, limit=25):
+        return self._cached(f'hotspots{limit}', lambda: self._hotspots_no_jit(limit))
+
+    def _hotspots_no_jit(self, limit):
+        with no_jit():
+            return self._hotspots(limit)
+
+    def _hotspots(self, limit):
+        """Most changed objects (by change sets) and most changed fields (by primary updates)."""
+        sql, params = self.primary().values(*PRIMARY_COLUMNS).order_by().query.sql_with_params()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT changed_object_type_id, changed_object_id, count(DISTINCT request_id), count(*), "
+                f"count(*) FILTER (WHERE action = 'update'), count(DISTINCT coalesce(user_id::text, user_name)), "
+                f"max(id), min(time), max(time) "
+                f"FROM ({sql}) AS p GROUP BY 1, 2 ORDER BY 3 DESC, 4 DESC, 7 DESC LIMIT %s",
+                list(params) + [limit],
+            )
+            objects = cursor.fetchall()
+            fields_sql, fields_params = self._changed_fields_sql()
+            cursor.execute(
+                f"SELECT changed_object_type_id, field, count(*), count(DISTINCT changed_object_id), "
+                f"count(DISTINCT coalesce(user_id::text, user_name)), max(time) "
+                f"FROM ({fields_sql}) AS f GROUP BY 1, 2 ORDER BY 3 DESC, 4 DESC, 2 LIMIT %s",
+                fields_params + [limit],
+            )
+            fields = cursor.fetchall()
+
+        types = ContentType.objects.in_bulk({r[0] for r in objects} | {r[0] for r in fields})
+        last = ObjectChange.objects.in_bulk([r[6] for r in objects])
+        object_rows = []
+        for t, oid, sets, changes, updates, users, last_id, first, latest in objects:
+            ct, rec = types.get(t), last.get(last_id)
+            model = ct.model_class() if ct else None
+            url, parent = None, None
+            deleted = rec is not None and rec.action == 'delete'
+            if model is not None and not deleted:
+                obj = model.objects.filter(pk=oid).first()
+                if obj is not None and hasattr(obj, 'get_absolute_url'):
+                    url = obj.get_absolute_url()
+                # A component (interface, port) is named within its device or virtual machine.
+                host = getattr(obj, 'device', None) or getattr(obj, 'virtual_machine', None) if obj else None
+                parent = str(host) if host is not None else None
+            object_rows.append({
+                'type_id': t, 'type_label': type_label(ct), 'object_id': oid, 'repr': rec.object_repr if rec else f'#{oid}',
+                'deleted': deleted, 'object_url': url, 'parent': parent, 'change_sets': sets, 'changes': changes, 'updates': updates,
+                'users': users, 'first': first, 'last': latest,
+                'changelog_url': self.flt.changelog_url(changed_object_type_id=t, changed_object_id=oid),
+            })
+        field_rows = [
+            {'type_id': t, 'type_label': type_label(types.get(t)), 'field': field, 'updates': n, 'objects': objs,
+             'users': users, 'last': latest}
+            for t, field, n, objs, users, latest in fields
+        ]
+        return {'objects': object_rows, 'fields': field_rows}
+
+    def field_changes(self, type_id, field, limit=100):
+        """Latest primary updates of one object type that changed field, with the values before and after."""
+        fields_sql, params = self._changed_fields_sql()
+        with no_jit(), connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT id, time, user_id, user_name, changed_object_id, "
+                f"prechange_data -> field, postchange_data -> field, count(*) OVER () "
+                f"FROM ({fields_sql}) AS f WHERE changed_object_type_id = %s AND field = %s "
+                f"ORDER BY time DESC, id DESC LIMIT %s",
+                params + [type_id, field, limit],
+            )
+            rows = cursor.fetchall()
+        records = ObjectChange.objects.prefetch_related('related_object').in_bulk([r[0] for r in rows])
+        users = dict(get_user_model().objects.filter(pk__in={r[2] for r in rows if r[2]}).values_list('pk', 'username'))
+        out = []
+        for rid, t, uid, uname, oid, before, after, total in rows:
+            rec = records.get(rid)
+            out.append({
+                'id': rid, 'time': t, 'user': users.get(uid, uname), 'object_id': oid,
+                'repr': rec.object_repr if rec else f'#{oid}', 'before': before, 'after': after,
+                # The related object (the device of an interface) names a component.
+                'parent': str(rec.related_object) if rec and rec.related_object else None,
+                'url': rec.get_absolute_url() if rec else None,
+            })
+        return {'rows': out, 'total': rows[0][7] if rows else 0}
 
     # API for Grafana
 
