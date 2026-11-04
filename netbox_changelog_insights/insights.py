@@ -304,8 +304,10 @@ class Insights:
             r['repr'] = rec.object_repr if rec else ''
             r['deleted'] = rec is not None and rec.action == 'delete'
             r['object_url'] = None
-            if rec is not None and not r['deleted']:
-                obj = rec.changed_object
+            # The model may be gone (a disabled or removed plugin): then there is no object to link.
+            model = types[r['k1']].model_class() if r['k1'] in types else None
+            if rec is not None and not r['deleted'] and model is not None:
+                obj = model.objects.filter(pk=rec.changed_object_id).first()
                 if obj is not None and hasattr(obj, 'get_absolute_url'):
                     r['object_url'] = obj.get_absolute_url()
             r['changelog_url'] = self.flt.changelog_url(changed_object_type_id=r['k1'], changed_object_id=r['k3'])
