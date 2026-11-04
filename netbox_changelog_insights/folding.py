@@ -15,7 +15,7 @@ A record that no rule folds is a primary record. Counts and rankings use primary
 records. The folded records stay available under their parent.
 """
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import BigIntegerField, BooleanField, Case, OuterRef, Q, Subquery, When
+from django.db.models import BigIntegerField, BooleanField, Case, Exists, OuterRef, Q, Subquery, When
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce
 
@@ -102,7 +102,8 @@ def annotate_fold(queryset, scope):
             Subquery(repeat),
             Case(
                 When(changed_object_type_id=termination_type.pk, then=cable_parent),
-                When(Q(action='update') & Q(_fold_cable_only=True), then=cable_parent),
+                # Check for a cable in the set before the field diff, which reads the jsonb data.
+                When(Q(action='update') & Exists(cables) & Q(_fold_cable_only=True), then=cable_parent),
                 default=None,
                 output_field=BigIntegerField(),
             ),

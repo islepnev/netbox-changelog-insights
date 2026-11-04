@@ -45,6 +45,8 @@ class FilterTestCase(TestCase):
                   {'period': 'bogus', 'type_id': 'abc'}):
             f = self.flt(q, now)
             self.assertEqual(f.days, 30)
+        self.assertEqual(sorted(f.errors), ['period', 'type_id'])
+        self.assertIsNone(f.type_id)
 
     @override_settings(TIME_ZONE='UTC')
     def test_changelog_url(self):
@@ -137,6 +139,9 @@ class ViewTestCase(TestCase):
         self.assertEqual(p['primary']['change_sets'], 2)
         p = self.client.get(reverse(PULSE), {'period': 'custom', 'start': '2020-01-01', 'end': '2020-01-02'}).context['pulse']
         self.assertEqual(p['totals']['records'], 0)
+        r = self.client.get(reverse(PULSE), {'type_id': 'abc', 'user_id': str(self.alice.pk)})
+        self.assertContains(r, 'alert-warning')
+        self.assertEqual(r.context['pulse']['totals']['change_sets'], 2)
 
     def test_object_permission_constraint(self):
         """Numbers stay inside the records the user may view."""
