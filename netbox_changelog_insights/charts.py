@@ -34,28 +34,31 @@ def bar_chart(days, ticks=6):
     return {'bars': bars, 'peak': peak}
 
 
-def sparkline(values, peak, weeks, start=None, end=None):
+def sparkline(values, peak, buckets, start=None, end=None, step='week'):
     """
-    Weekly columns, height in percent of a shared peak (a non-zero week is never lower than
+    Columns per day or week (step), height in percent of a shared peak (a non-zero week is never lower than
     a visible stub). A week that the period [start, end] (dates, inclusive) covers only in
     part has a lower count for that reason: it is marked and its title tells the days covered.
     """
     if not values:
         return None
     covered = [7] * len(values)
-    if start is not None and end is not None:
-        for i, w in enumerate(weeks):
+    if step == 'day':
+        covered = [1] * len(values)
+    elif start is not None and end is not None:
+        for i, w in enumerate(buckets):
             first, last = max(w, start), min(w + timedelta(days=6), end)
             covered[i] = max(0, (last - first).days + 1)
     bars = []
-    for w, v, c in zip(weeks, values, covered):
-        note = f' ({c} of 7 days)' if c < 7 else ''
+    full = 1 if step == 'day' else 7
+    for w, v, c in zip(buckets, values, covered):
+        note = f' ({c} of 7 days)' if c < full else ''
         bars.append({
             'height': round(100 * v / peak, 1) if peak and v else 0,
-            'partial': c < 7,
-            'title': f"{date_format(w, 'M j')}: {v}{note}",
+            'partial': c < full,
+            'title': f"{date_format(w, 'D, M j' if step == 'day' else 'M j')}: {v}{note}",
         })
-    return {'bars': bars, 'title': ', '.join(b['title'] for b in bars)}
+    return {'bars': bars, 'step': step, 'title': ', '.join(b['title'] for b in bars)}
 
 
 def stacked_chart(data, by, ticks=6):

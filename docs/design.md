@@ -58,14 +58,14 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 | Page | Content | Size |
 |---|---|---|
 | Pulse | Period (7, 30, 90 days, custom): change sets, records by action, active users by kind, top users, types, objects | M |
-| Contributors | Per user: first and last change, change sets, creates, updates, deletes, weekly sparkline, top types | M |
+| Contributors | Per user: first and last change, change sets, creates, updates, deletes, trend by day or week, top types | M |
 | Chains | Chains per device or VM: onboarding filter, stages, duration, users; click shows the change sets | L |
 | Activity | Series over time grouped by one dimension (user, app, model, action, site, tenant); weekday × hour heatmap (done) | M |
 | Actor kind | Person/automation split on all pages | S |
 | Hotspots | Most changed objects; most changed fields per model; values before and after per field (done) | M |
 | API | Aggregates over REST for Grafana: `activity/` by day, week, user, type; Grafana row in `docs/grafana-row.json` (done) | S |
 | User | One user: change sets per day, weekday × hour, sites, top types and objects, recent change sets, first and last change; the user is a filter, so every page opens for that user (done) | M |
-| Scope | Per site or tenant: change sets, actions, objects, users, weekly trend, top types; site and tenant filter on all pages and the API (done) | L |
+| Scope | Per site or tenant: change sets, actions, objects, users, trend by day or week, top types; site and tenant filter on all pages and the API (done) | L |
 
 ## Out of scope
 

@@ -69,6 +69,11 @@ _GROUPS = {
         "FROM p GROUP BY 2, 3, 5",
         ('tz',),
     ),
+    'user_day': (
+        "SELECT 'user_day', user_id, user_name, NULL::bigint, (time AT TIME ZONE %s)::date, {aggs} "
+        "FROM p GROUP BY 2, 3, 5",
+        ('tz',),
+    ),
     'week': (
         "SELECT 'week', NULL::bigint, NULL::text, NULL::bigint, date_trunc('week', time AT TIME ZONE %s)::date, {aggs} "
         "FROM p GROUP BY 5",
@@ -79,6 +84,10 @@ _GROUPS = {
         ('tz',),
     ),
 }
+
+
+# The trend columns of Contributors and Scope step by day up to this many days, else by week.
+TREND_DAYS_MAX = 31
 
 
 @contextlib.contextmanager
@@ -499,6 +508,20 @@ class Insights:
                 }
         return out
 
+    def trend_buckets(self):
+        """
+        Step and bucket starts of the trend columns: days up to TREND_DAYS_MAX days, else weeks
+        (Monday in TIME_ZONE; the first and last week may reach beyond the period).
+        """
+        start, end = self.flt.start_date, self.flt.end_date
+        step = 'day' if self.flt.days <= TREND_DAYS_MAX else 'week'
+        first = start if step == 'day' else start - timedelta(days=start.weekday())
+        buckets, d = [], first
+        while d <= end:
+            buckets.append(d)
+            d += timedelta(days=1 if step == 'day' else 7)
+        return step, buckets
+
     # Scope page (design decision 12)
 
     def scope_page(self, scope, top=3):
@@ -508,10 +531,10 @@ class Insights:
         with no_jit():
             return self._scope_page(scope, top)
 
-    def _scope_rows(self, scope):
+    def _scope_rows(self, scope, step):
         """
         Primary records grouped by site or tenant, in one statement: totals ("g"), change sets
-        per week ("w") and primary records per object type ("t"). Key NULL: no site or tenant.
+        per day or week ("w") and primary records per object type ("t"). Key NULL: no site or tenant.
         """
         return self._primary_select(
             f"SELECT 'g', s, NULL::date, NULL::bigint, count(*), count(DISTINCT request_id), "
@@ -519,13 +542,13 @@ class Insights:
             f"count(*) FILTER (WHERE action = 'delete'), "
             f"count(DISTINCT (changed_object_type_id, changed_object_id)), "
             f"count(DISTINCT coalesce(user_id::text, user_name)), max(time) FROM p GROUP BY s "
-            f"UNION ALL SELECT 'w', s, date_trunc('week', time AT TIME ZONE %s)::date, NULL, "
+            f"UNION ALL SELECT 'w', s, date_trunc(%s, time AT TIME ZONE %s)::date, NULL, "
             f"count(DISTINCT request_id), NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM p GROUP BY 2, 3 "
             f"UNION ALL SELECT 't', s, NULL, changed_object_type_id, count(*), NULL, NULL, NULL, NULL, NULL, NULL, "
             f"NULL FROM p GROUP BY 2, 4 "
             f"UNION ALL SELECT 'a', NULL, NULL, NULL, count(*), count(DISTINCT request_id), NULL, NULL, NULL, NULL, "
             f"NULL, NULL FROM p",
-            [str(self.tz)], scope,
+            [step, str(self.tz)], scope,
         )
 
     def _scope_labels(self, scope, ids):
@@ -548,14 +571,10 @@ class Insights:
         }
 
     def _scope_page(self, scope, top):
-        """Per site or tenant: change sets, primary changes by action, objects, users, weekly trend, top types."""
-        result = self._scope_rows(scope)
-        weeks = []
-        w = self.flt.start_date - timedelta(days=self.flt.start_date.weekday())
-        while w <= self.flt.end_date:
-            weeks.append(w)
-            w += timedelta(days=7)
-        weekly, types = defaultdict(dict), defaultdict(list)
+        """Per site or tenant: change sets, primary changes by action, objects, users, trend, top types."""
+        step, buckets = self.trend_buckets()
+        result = self._scope_rows(scope, step)
+        by_bucket, types = defaultdict(dict), defaultdict(list)
         total = {'records': 0, 'change_sets': 0}
         groups = []
         for tag, key, week, type_id, n, sets, create, update, delete, objects, users, last in result:
@@ -565,7 +584,7 @@ class Insights:
                     'delete': delete, 'objects': objects, 'users': users, 'last': last,
                 })
             elif tag == 'w':
-                weekly[key][week] = n
+                by_bucket[key][week] = n
             elif tag == 't':
                 types[key].append((type_id, n))
             else:
@@ -574,14 +593,14 @@ class Insights:
         ct = ContentType.objects.in_bulk({t for v in types.values() for t, _ in v})
         for g in groups:
             g.update(labels.get(g['key'], {'name': None, 'url': None}))
-            g['weekly'] = [weekly[g['key']].get(w, 0) for w in weeks]
+            g['trend'] = [by_bucket[g['key']].get(w, 0) for w in buckets]
             g['top_types'] = [
                 {'type_id': t, 'type_label': type_label(ct.get(t), include_app=False), 'records': n}
                 for t, n in sorted(types[g['key']], key=lambda tn: (-tn[1], tn[0]))[:top]
             ]
         # Most change sets first; the records without a site or tenant last.
         groups.sort(key=lambda g: (g['key'] is None, -g['change_sets'], -g['records'], str(g['name'])))
-        return {'groups': groups, 'weeks': weeks, 'total': total}
+        return {'groups': groups, 'buckets': buckets, 'step': step, 'total': total}
 
     # Activity page
 
@@ -880,7 +899,8 @@ class Insights:
     def _contributors(self):
         records = self.records()
         automation_ids = self.automation_user_ids()
-        groups = self.primary_groups(('user', 'user_type', 'user_week'))
+        step, buckets = self.trend_buckets()
+        groups = self.primary_groups(('user', 'user_type', f'user_{step}'))
         users = self._users(groups['user'], records, automation_ids)
         keys = {_user_key(u) for u in users}
 
@@ -895,15 +915,10 @@ class Insights:
                 s['first'] = min(s['first'], row['first'])
                 s['last'] = max(s['last'], row['last'])
 
-        # Change sets per week; weeks start on Monday in TIME_ZONE.
-        weeks = []
-        w = self.flt.start_date - timedelta(days=self.flt.start_date.weekday())
-        while w <= self.flt.end_date:
-            weeks.append(w)
-            w += timedelta(days=7)
-        weekly = defaultdict(lambda: defaultdict(int))
-        for row in groups['user_week']:
-            weekly[_user_key({'user_id': row['k1'], 'user_name': row['k2']})][row['k4']] += row['change_sets']
+        # Change sets per day or week (trend_buckets).
+        by_bucket = defaultdict(lambda: defaultdict(int))
+        for row in groups[f'user_{step}']:
+            by_bucket[_user_key({'user_id': row['k1'], 'user_name': row['k2']})][row['k4']] += row['change_sets']
 
         # Top types per user, by primary records.
         types = defaultdict(lambda: defaultdict(int))
@@ -914,7 +929,7 @@ class Insights:
         for u in users:
             key = _user_key(u)
             u.update(span.get(key, {'first': None, 'last': None}))
-            u['weekly'] = [weekly[key].get(w, 0) for w in weeks]
+            u['trend'] = [by_bucket[key].get(w, 0) for w in buckets]
             top = sorted(types[key].items(), key=lambda kv: -kv[1])[:3]
             u['top_types'] = [
                 {
@@ -924,4 +939,4 @@ class Insights:
                 for t, n in top
             ]
             u['action_urls'] = {a: self._user_changelog_url(u, action=a) for a in ACTIONS}
-        return {'users': users, 'weeks': weeks}
+        return {'users': users, 'buckets': buckets, 'step': step}

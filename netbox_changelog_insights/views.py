@@ -160,10 +160,10 @@ class ContributorsView(InsightsView):
         flt = InsightsFilter.from_request(request)
         insights = Insights(request.user, flt)
         data = insights.contributors()
-        peak = max((max(u['weekly'], default=0) for u in data['users']), default=0)
+        peak = max((max(u['trend'], default=0) for u in data['users']), default=0)
         for u in data['users']:
             u['filter_url'] = self.user_filter_url(flt, u, 'plugins:netbox_changelog_insights:user')
-            u['sparkline'] = charts.sparkline(u['weekly'], peak, data['weeks'], flt.start_date, flt.end_date)
+            u['sparkline'] = charts.sparkline(u['trend'], peak, data['buckets'], flt.start_date, flt.end_date, data['step'])
         context = self.base_context(request, flt, insights)
         context.update(data)
         context['kind_urls'] = {
@@ -234,10 +234,10 @@ class ScopeView(InsightsView):
         by = by if by in dict(self.dimensions) else 'site'
         insights = Insights(request.user, flt)
         data = insights.scope_page(by)
-        peak = max((max(g['weekly'], default=0) for g in data['groups']), default=0)
+        peak = max((max(g['trend'], default=0) for g in data['groups']), default=0)
         pulse = 'plugins:netbox_changelog_insights:pulse'
         for g in data['groups']:
-            g['sparkline'] = charts.sparkline(g['weekly'], peak, data['weeks'], flt.start_date, flt.end_date)
+            g['sparkline'] = charts.sparkline(g['trend'], peak, data['buckets'], flt.start_date, flt.end_date, data['step'])
             # Records without a site or tenant: "null", as in NetBox filters.
             value = {f'{by}_id': 'null' if g['key'] is None else g['key']}
             g['filter_url'] = flt.url(pulse, **value)

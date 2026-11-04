@@ -1,5 +1,5 @@
 {% load i18n %}{% if sparkline %}
-<div class="insights-weekly" role="img" aria-label="{% trans 'Change sets per week' %}: {{ sparkline.title }}">
+<div class="insights-weekly" role="img" aria-label="{% if sparkline.step == 'day' %}{% trans 'Change sets per day' %}{% else %}{% trans 'Change sets per week' %}{% endif %}: {{ sparkline.title }}">
   {% for b in sparkline.bars %}<div class="insights-week{% if b.partial %} partial{% endif %}" title="{{ b.title }}"><div class="insights-week-fill" style="height: {{ b.height }}%"></div></div>{% endfor %}
 </div>
 {% endif %}
