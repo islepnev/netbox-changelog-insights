@@ -50,3 +50,7 @@ Faster than Docker: clone NetBox at the tag to test (`git clone --depth 1 --bran
 ```
 python manage.py test netbox_changelog_insights --keepdb --parallel 1
 ```
+
+## Release
+
+Set the version in `pyproject.toml` and `netbox_changelog_insights/__init__.py`, commit, then push a tag `v<version>` on that commit. The `publish` workflow checks that the tag and the version agree, builds the package and publishes it to PyPI (Trusted Publishing, environment `pypi`).

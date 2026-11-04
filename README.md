@@ -2,12 +2,12 @@
 
 [![test](https://github.com/islepnev/netbox-changelog-insights/actions/workflows/test.yml/badge.svg)](https://github.com/islepnev/netbox-changelog-insights/actions/workflows/test.yml)
 [![NetBox](https://img.shields.io/badge/NetBox-4.6%20%7C%204.7-blue)](https://github.com/netbox-community/netbox)
-[![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](pyproject.toml)
-[![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://github.com/islepnev/netbox-changelog-insights/blob/main/pyproject.toml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green)](https://github.com/islepnev/netbox-changelog-insights/blob/main/LICENSE)
 
 **Who changes your NetBox, what and how much.** The core changelog is a flat list of records: it tells what happened to one object, not where the work goes. This plugin groups the changelog into change sets and shows activity by user, object type and time, in the manner of GitHub Insights.
 
-![Pulse: change sets, records and primary changes of 90 days, change sets per day, top users, object types and objects, recent change sets](docs/img/hero.png)
+![Pulse: change sets, records and primary changes of 90 days, change sets per day, top users, object types and objects, recent change sets](https://raw.githubusercontent.com/islepnev/netbox-changelog-insights/main/docs/img/hero.png)
 
 A NetBox plugin. Reads the changelog in place: no models, no migrations, no copy of the data.
 
@@ -25,9 +25,9 @@ Every number links to the core changelog with the same filter. Days and weeks fo
 
 | Pulse | Contributors |
 |---|---|
-| ![Pulse](docs/img/pulse.png) | ![Contributors](docs/img/contributors.png) |
+| ![Pulse](https://raw.githubusercontent.com/islepnev/netbox-changelog-insights/main/docs/img/pulse.png) | ![Contributors](https://raw.githubusercontent.com/islepnev/netbox-changelog-insights/main/docs/img/contributors.png) |
 | **Activity** | **Chains** |
-| ![Activity](docs/img/activity.png) | ![Chains](docs/img/chains.png) |
+| ![Activity](https://raw.githubusercontent.com/islepnev/netbox-changelog-insights/main/docs/img/activity.png) | ![Chains](https://raw.githubusercontent.com/islepnev/netbox-changelog-insights/main/docs/img/chains.png) |
 
 The screenshots use a synthetic changelog (`dev/generate_changelog.py`); no real data is shown.
 
@@ -35,9 +35,9 @@ The screenshots use a synthetic changelog (`dev/generate_changelog.py`); no real
 
 The unit is the change set: the records of one request (`request_id`). Side effects fold into their cause, so that a change counts once. Creating one cable writes six records; the plugin counts one change set and one primary change, and shows the other five on click.
 
-![A change set of six records: a new cable is the primary change; its extra update, two terminations and the cable fields of two interfaces fold into it](docs/img/change-set.svg)
+![A change set of six records: a new cable is the primary change; its extra update, two terminations and the cable fields of two interfaces fold into it](https://raw.githubusercontent.com/islepnev/netbox-changelog-insights/main/docs/img/change-set.svg)
 
-Records fold when they are a further record of the same object, components created with their device, cable terminations and cable-only updates of a new cable, or a primary IP update made with its IP address. The rules and their checks are in [docs/design.md](docs/design.md).
+Records fold when they are a further record of the same object, components created with their device, cable terminations and cable-only updates of a new cable, or a primary IP update made with its IP address. The rules and their checks are in [docs/design.md](https://github.com/islepnev/netbox-changelog-insights/blob/main/docs/design.md).
 
 The site of a record comes from the object, its device or virtual machine, or the interface an IP address is assigned to; the tenant from the object, else its device or virtual machine (design decision 12).
 
@@ -50,8 +50,10 @@ The site of a record comes from the object, its device or virtual machine, or th
 ## Install
 
 ```bash
-pip install git+https://github.com/islepnev/netbox-changelog-insights
+pip install netbox-changelog-insights
 ```
+
+Or the latest code from GitHub: `pip install git+https://github.com/islepnev/netbox-changelog-insights`.
 
 In `configuration.py`:
 
@@ -100,7 +102,7 @@ curl -H "Authorization: Bearer nbt_<key>.<token>" \
 
 `changes` counts primary changes, `records` all records. When `max_period_days` cuts the period, the header `X-Period-Cut-From` names the first day asked for.
 
-[docs/grafana-row.json](docs/grafana-row.json) is a row of four panels on this endpoint: totals, change sets per day or week, top users, top object types. Copy its `panels` and `templating.list` into a dashboard, and set the Infinity data source URL to the NetBox base URL with an `Authorization` header that holds the token.
+[docs/grafana-row.json](https://github.com/islepnev/netbox-changelog-insights/blob/main/docs/grafana-row.json) is a row of four panels on this endpoint: totals, change sets per day or week, top users, top object types. Copy its `panels` and `templating.list` into a dashboard, and set the Infinity data source URL to the NetBox base URL with an `Authorization` header that holds the token.
 
 ## Limitations
 
@@ -116,7 +118,7 @@ docker compose -f dev/docker-compose.yml up -d    # NetBox 4.6.4 with this check
 python manage.py test netbox_changelog_insights   # in the NetBox directory, with the plugin installed
 ```
 
-Synthetic data, the audit tools for a real changelog and the timing script: [docs/development.md](docs/development.md). Design notes: [docs/design.md](docs/design.md).
+Synthetic data, the audit tools for a real changelog and the timing script: [docs/development.md](https://github.com/islepnev/netbox-changelog-insights/blob/main/docs/development.md). Design notes: [docs/design.md](https://github.com/islepnev/netbox-changelog-insights/blob/main/docs/design.md).
 
 ## Contributing
 
@@ -124,4 +126,4 @@ Issues and pull requests are welcome. Run the tests before sending a change; CI 
 
 ## License
 
-Apache License 2.0, see [LICENSE](LICENSE). Free to use, modify and redistribute, commercially too. Redistributions and derivative works must keep the copyright and [NOTICE](NOTICE) with the author's name, Ilia Slepnev.
+Apache License 2.0, see [LICENSE](https://github.com/islepnev/netbox-changelog-insights/blob/main/LICENSE). Free to use, modify and redistribute, commercially too. Redistributions and derivative works must keep the copyright and [NOTICE](https://github.com/islepnev/netbox-changelog-insights/blob/main/NOTICE) with the author's name, Ilia Slepnev.
