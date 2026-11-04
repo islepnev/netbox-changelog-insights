@@ -60,3 +60,11 @@ python manage.py test netbox_changelog_insights
 ```
 NETBOX_URL=https://netbox.example.com NETBOX_TOKEN=... python3 tools/fold_audit.py --days 90 > fold_audit.md
 ```
+
+`tools/chain_audit.py` measures chains of change sets about one device or virtual machine over time (for example the onboarding of a server). It needs `fold_audit.py` in the same directory and has the same rules: GET requests only, counts and field names only:
+
+```
+NETBOX_URL=https://netbox.example.com NETBOX_TOKEN=... python3 tools/chain_audit.py --days 90 --automation-group automation > chain_audit.md
+```
+
+`dev/generate_changelog.py --onboardings N` adds N server onboardings spread over hours and days.
