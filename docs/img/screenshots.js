@@ -8,8 +8,8 @@ const base = process.argv[2] || 'http://127.0.0.1:8001';
 const out = __dirname;
 const shots = [
   // name, path, viewport width, height of the clip in CSS pixels
-  ['hero', '/plugins/changelog-insights/?period=90', 1280, 860],
-  ['pulse', '/plugins/changelog-insights/?period=30', 1280, 860],
+  ['hero', '/plugins/changelog-insights/pulse/?period=90', 1280, 860],
+  ['pulse', '/plugins/changelog-insights/pulse/?period=30', 1280, 860],
   ['contributors', '/plugins/changelog-insights/contributors/?period=90', 1280, 860],
   ['activity', '/plugins/changelog-insights/activity/?period=90&by=user', 1280, 860],
   ['chains', '/plugins/changelog-insights/chains/?period=30&onboarding=1&kind=automation', 1280, 860],

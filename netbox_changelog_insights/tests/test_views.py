@@ -289,6 +289,13 @@ class ViewTestCase(TestCase):
         self.assertIsNotNone(users['alice']['first'])
         self.assertContains(r, 'mdi-robot-outline')
 
+    def test_root_redirects_to_pulse(self):
+        # The plugin root is not a menu link: NetBox would mark it active on every plugin page.
+        self.client.force_login(self.viewer)
+        r = self.client.get('/plugins/changelog-insights/?period=7')
+        self.assertRedirects(r, reverse(PULSE) + '?period=7')
+        self.assertEqual(reverse(PULSE), '/plugins/changelog-insights/pulse/')
+
     def test_user_page(self):
         url = reverse('plugins:netbox_changelog_insights:user')
         self.client.force_login(self.viewer)
