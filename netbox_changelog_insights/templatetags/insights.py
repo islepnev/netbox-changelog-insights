@@ -21,3 +21,29 @@ def action_color(action):
 @register.filter
 def action_label(action):
     return dict(ObjectChangeActionChoices).get(action, action)
+
+
+@register.filter
+def duration(seconds):
+    """Seconds as a short duration: 45 s, 12 min, 4.4 h, 6.3 d."""
+    if seconds is None:
+        return ''
+    seconds = float(seconds)
+    if seconds < 60:
+        return f'{seconds:.0f} s'
+    if seconds < 3600:
+        return f'{seconds / 60:.0f} min'
+    if seconds < 86400:
+        return f'{seconds / 3600:.1f} h'
+    return f'{seconds / 86400:.1f} d'
+
+
+STAGE_COLORS = {
+    'create': 'green', 'delete': 'red', 'components': 'teal', 'modules': 'cyan', 'cabling': 'purple',
+    'metadata': 'blue', 'component edits': 'azure', 'assets': 'orange', 'ip': 'indigo', 'contacts': 'pink',
+}
+
+
+@register.filter
+def stage_color(stage):
+    return STAGE_COLORS.get(stage, 'secondary')

@@ -9,13 +9,13 @@
     detail.classList.toggle('d-none', !open);
   }
   document.addEventListener('click', function (event) {
-    var row = event.target.closest('.insights-changeset-row[aria-controls]');
+    var row = event.target.closest('[data-insights-toggle][aria-controls]');
     if (!row || event.target.closest('a')) return;
     toggle(row);
   });
   document.addEventListener('keydown', function (event) {
     if (event.key !== 'Enter' && event.key !== ' ') return;
-    var row = event.target.closest && event.target.closest('.insights-changeset-row[aria-controls]');
+    var row = event.target.closest && event.target.closest('[data-insights-toggle][aria-controls]');
     if (!row || event.target !== row) return;
     event.preventDefault();
     row.click();

@@ -7,12 +7,15 @@ from django.http import Http404
 from django.shortcuts import render
 from django.views.generic import View
 
+from netbox.plugins import get_plugin_config
+
 from . import charts
 from .filters import PERIODS, InsightsFilter, changeset_changelog_url
 from .folding import fold_tree
 from .insights import Insights
 
 __all__ = (
+    'ChainsView',
     'ChangeSetView',
     'ContributorsView',
     'PulseView',
@@ -58,7 +61,7 @@ class InsightsView(AccessMixin, View):
             'automation_group': insights.automation_group,
             'period_urls': [(str(p), flt.url(self.viewname, period=p, start=None, end=None)) for p in PERIODS],
             'clear_url': flt.url(
-                self.viewname, user_id=None, user_name=None, type_id=None, action=None, kind=None
+                self.viewname, user_id=None, user_name=None, type_id=None, action=None, kind=None, onboarding=None,
             ),
         }
 
@@ -104,6 +107,30 @@ class ContributorsView(InsightsView):
             u['sparkline'] = charts.sparkline(u['weekly'], peak, data['weeks'])
         context = self.base_context(request, flt, insights)
         context.update(data)
+        context['kind_urls'] = {
+            'all': flt.url(self.viewname, kind=None),
+            'person': flt.url(self.viewname, kind='person'),
+            'automation': flt.url(self.viewname, kind='automation'),
+        }
+        return render(request, self.template_name, context)
+
+
+class ChainsView(InsightsView):
+    template_name = 'netbox_changelog_insights/chains.html'
+    viewname = 'plugins:netbox_changelog_insights:chains'
+
+    def get(self, request):
+        flt = InsightsFilter.from_request(request)
+        insights = Insights(request.user, flt)
+        data = insights.chains()
+        context = self.base_context(request, flt, insights)
+        context.update(data)
+        context['chain_gap'] = f"{get_plugin_config('netbox_changelog_insights', 'chain_gap_hours', 7 * 24)} h"
+        context['automation_gap'] = f"{get_plugin_config('netbox_changelog_insights', 'automation_gap_hours', 24)} h"
+        context['onboarding_urls'] = {
+            'all': flt.url(self.viewname, onboarding=None),
+            'onboarding': flt.url(self.viewname, onboarding=1),
+        }
         context['kind_urls'] = {
             'all': flt.url(self.viewname, kind=None),
             'person': flt.url(self.viewname, kind='person'),
