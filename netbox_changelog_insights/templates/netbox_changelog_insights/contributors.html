@@ -56,7 +56,7 @@
                 {% endif %}
               </td>
               <td class="small">
-                {% for t in u.top_types %}<div class="text-nowrap"><a href="{{ t.changelog_url }}" class="text-reset">{{ t.type|type_name:False }}</a> <span class="text-secondary">{{ t.records }}</span></div>{% endfor %}
+                {% for t in u.top_types %}<div class="text-nowrap"><a href="{{ t.changelog_url }}" class="text-reset">{{ t.type_label }}</a> <span class="text-secondary">{{ t.records }}</span></div>{% endfor %}
               </td>
               <td class="text-nowrap small">
                 <div title="{{ u.first|date:'Y-m-d H:i' }}">{{ u.first|date:"Y-m-d" }}</div>

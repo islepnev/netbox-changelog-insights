@@ -122,8 +122,8 @@ class ViewTestCase(TestCase):
         users = {u['user_name']: u for u in p['top_users']}
         self.assertEqual(users['alice']['change_sets'], 2)
         self.assertTrue(users['gone']['deleted'])
-        types = {r['type'].model: r['records'] for r in p['top_types']}
-        self.assertEqual(types, {'device': 1, 'interface': 2, 'cable': 1})
+        types = {r['type_label']: r['records'] for r in p['top_types']}
+        self.assertEqual(types, {'DCIM > Device': 1, 'DCIM > Interface': 2, 'DCIM > Cable': 1})
         self.assertEqual(sum(d['change_sets'] for d in p['daily']), 4)
         self.assertContains(r, reverse('core:objectchange_list'))
 
@@ -142,6 +142,36 @@ class ViewTestCase(TestCase):
         r = self.client.get(reverse(PULSE), {'type_id': 'abc', 'user_id': str(self.alice.pk)})
         self.assertContains(r, 'alert-warning')
         self.assertEqual(r.context['pulse']['totals']['change_sets'], 2)
+
+    def test_changelog_links_keep_the_filter(self):
+        """Links to the core changelog carry one action and the users of the selected kind."""
+        self.client.force_login(self.viewer)
+        r = self.client.get(reverse(PULSE), {'action': 'update'})
+        q = parse_qs(urlparse(r.context['action_urls']['create']).query)
+        self.assertEqual(q['action'], ['create'])
+        r = self.client.get(reverse(PULSE), {'kind': 'automation'})
+        q = parse_qs(urlparse(r.context['flt'].changelog_url()).query)
+        self.assertEqual(q['user_id'], [str(self.bot.pk)])
+        r = self.client.get(reverse(PULSE), {'kind': 'person'})
+        q = parse_qs(urlparse(r.context['flt'].changelog_url()).query)
+        self.assertEqual(q['user_id'], [str(self.alice.pk)])  # the deleted user has no id
+
+    def test_cached_values_are_plain_data(self):
+        """The cache holds no model instances, so an upgrade cannot break reading it."""
+        from django.db.models import Model
+
+        def walk(value):
+            self.assertNotIsInstance(value, Model)
+            if isinstance(value, dict):
+                for v in value.values():
+                    walk(v)
+            elif isinstance(value, (list, tuple, set)):
+                for v in value:
+                    walk(v)
+
+        f = InsightsFilter.from_request(RequestFactory().get('/', {'period': '30'}))
+        walk(Insights(self.viewer, f).pulse())
+        walk(Insights(self.viewer, f).contributors())
 
     def test_object_permission_constraint(self):
         """Numbers stay inside the records the user may view."""

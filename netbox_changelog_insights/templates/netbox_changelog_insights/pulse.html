@@ -17,7 +17,7 @@
     <div class="col-sm-6 col-xl-3">
       <div class="card h-100"><div class="card-body">
         <div class="subheader">{% trans "Change sets" %}</div>
-        <div class="h1 mb-1"><a href="{{ flt.changelog_url }}" class="text-reset" title="{% trans 'Open in the changelog' %}">{{ t.change_sets }}</a></div>
+        <div class="h1 mb-1"><a href="{{ flt.changelog_url }}" class="text-reset" title="{% trans 'Change sets with a primary change that matches the filter. The changelog shows all their records.' %}">{{ p.change_sets }}</a></div>
         <div class="text-secondary small">{% blocktrans with n=p.records %}{{ n }} primary changes{% endblocktrans %}</div>
       </div></div>
     </div>
@@ -26,9 +26,9 @@
         <div class="subheader">{% trans "Records" %}</div>
         <div class="h1 mb-1"><a href="{{ flt.changelog_url }}" class="text-reset">{{ t.records }}</a></div>
         <div class="small">
-          <a href="{{ flt.changelog_url }}&amp;action=create" class="text-green">{{ t.create }} {% trans "created" %}</a>,
-          <a href="{{ flt.changelog_url }}&amp;action=update" class="text-blue">{{ t.update }} {% trans "updated" %}</a>,
-          <a href="{{ flt.changelog_url }}&amp;action=delete" class="text-red">{{ t.delete }} {% trans "deleted" %}</a>
+          <a href="{{ action_urls.create }}" class="text-green">{{ t.create }} {% trans "created" %}</a>,
+          <a href="{{ action_urls.update }}" class="text-blue">{{ t.update }} {% trans "updated" %}</a>,
+          <a href="{{ action_urls.delete }}" class="text-red">{{ t.delete }} {% trans "deleted" %}</a>
         </div>
         <div class="text-secondary small" title="{% trans 'Side effects folded into their cause: components of a new device, cable terminations and cable fields of a new cable.' %}">{% blocktrans with n=t.folded %}{{ n }} folded{% endblocktrans %}</div>
       </div></div>
@@ -106,7 +106,7 @@
             <tbody>
               {% for r in pulse.top_types %}
                 <tr>
-                  <td><a href="{{ r.filter_url }}" title="{% trans 'Filter by this type' %}">{{ r.type|type_name }}</a></td>
+                  <td><a href="{{ r.filter_url }}" title="{% trans 'Filter by this type' %}">{{ r.type_label }}</a></td>
                   <td class="text-end"><a href="{{ r.changelog_url }}">{{ r.change_sets }}</a></td>
                   <td class="text-end" title="{{ r.create }} {% trans 'created' %}, {{ r.update }} {% trans 'updated' %}, {{ r.delete }} {% trans 'deleted' %}">{{ r.records }}</td>
                 </tr>
@@ -129,7 +129,7 @@
                 <tr>
                   <td>
                     {% if r.object_url %}<a href="{{ r.object_url }}">{{ r.repr }}</a>{% else %}<span class="{% if r.deleted %}text-decoration-line-through text-secondary{% endif %}">{{ r.repr }}</span>{% endif %}
-                    <div class="small text-secondary">{{ r.type|type_name }}</div>
+                    <div class="small text-secondary">{{ r.type_label }}</div>
                   </td>
                   <td class="text-end"><a href="{{ r.changelog_url }}">{{ r.change_sets }}</a></td>
                 </tr>
