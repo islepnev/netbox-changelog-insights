@@ -1,0 +1,17 @@
+{% load i18n insights %}
+<tbody class="insights-changeset" id="cs-{{ cs.request_id }}">
+  <tr class="insights-changeset-row" {% if cs.folded or cs.primary > 1 %}role="button" tabindex="0" hx-get="{% url 'plugins:netbox_changelog_insights:changeset' request_id=cs.request_id %}" hx-target="#cs-{{ cs.request_id }}-detail" hx-swap="innerHTML" hx-trigger="click once, keyup[key=='Enter'] once" aria-expanded="false" onclick="this.setAttribute('aria-expanded', this.getAttribute('aria-expanded') === 'true' ? 'false' : 'true'); document.getElementById('cs-{{ cs.request_id }}-detail').classList.toggle('d-none');"{% endif %}>
+    <td>{% if cs.folded or cs.primary > 1 %}<i class="mdi mdi-chevron-right insights-chevron"></i>{% endif %}</td>
+    <td class="text-nowrap">{{ cs.time|date:"Y-m-d H:i" }}</td>
+    <td>{{ cs.first.user.username|default:cs.first.user_name }}</td>
+    <td>
+      <span class="badge text-bg-{{ cs.first.action|action_color }}">{{ cs.first.action|action_label }}</span>
+      {{ cs.first.changed_object_type|type_name:False }} <strong>{{ cs.first.object_repr }}</strong>
+      {% if cs.primary > 1 %}<span class="text-secondary">{% blocktrans count n=cs.primary|add:"-1" %}and {{ n }} more{% plural %}and {{ n }} more{% endblocktrans %}</span>{% endif %}
+    </td>
+    <td class="text-end">{{ cs.primary }}</td>
+    <td class="text-end">{% if cs.folded %}{{ cs.folded }}{% else %}<span class="text-secondary">&mdash;</span>{% endif %}</td>
+    <td class="text-end"><a href="{{ cs.changelog_url }}" title="{% trans 'Open in the changelog' %}" onclick="event.stopPropagation()">{{ cs.records }}</a></td>
+  </tr>
+  <tr class="d-none" id="cs-{{ cs.request_id }}-detail"><td colspan="7" class="p-0"></td></tr>
+</tbody>

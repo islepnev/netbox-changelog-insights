@@ -1,0 +1,31 @@
+{% load i18n insights %}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="d-flex flex-wrap align-items-center gap-2" action="">
+      <div class="btn-group" role="group" aria-label="{% trans 'Period' %}">
+        {% for p, url in period_urls %}
+          <a href="{{ url }}" class="btn btn-sm {% if flt.period == p %}btn-primary{% else %}btn-outline-primary{% endif %}">{% blocktrans with n=p %}{{ n }} days{% endblocktrans %}</a>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="period" value="custom">
+      {% for key, value in flt.params.items %}{% if key != 'period' and key != 'start' and key != 'end' %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}{% endfor %}
+      <label class="form-label mb-0 ms-2 text-secondary" for="id_start">{% trans "From" %}</label>
+      <input type="date" id="id_start" name="start" value="{{ flt.start_date|date:'Y-m-d' }}" class="form-control form-control-sm w-auto">
+      <label class="form-label mb-0 text-secondary" for="id_end">{% trans "to" %}</label>
+      <input type="date" id="id_end" name="end" value="{{ flt.end_date|date:'Y-m-d' }}" class="form-control form-control-sm w-auto">
+      <button type="submit" class="btn btn-sm {% if flt.period == 'custom' %}btn-primary{% else %}btn-outline-secondary{% endif %}">{% trans "Apply" %}</button>
+      {% if flt.is_filtered %}
+        <span class="ms-2 text-secondary">{% trans "Filter" %}:</span>
+        {% if flt.user_id or flt.user_name %}<span class="badge text-bg-secondary">{% trans "User" %}: {{ filter_user_label|default:flt.user_name|default:flt.user_id }}</span>{% endif %}
+        {% if flt.kind %}<span class="badge text-bg-secondary">{% trans "Kind" %}: {{ flt.kind }}</span>{% endif %}
+        {% if flt.type_id %}<span class="badge text-bg-secondary">{% trans "Type" %}: {{ flt.object_type|type_name }}</span>{% endif %}
+        {% if flt.action %}<span class="badge text-bg-{{ flt.action|action_color }}">{{ flt.action|action_label }}</span>{% endif %}
+        <a href="{{ clear_url }}" class="btn btn-sm btn-ghost-danger" title="{% trans 'Clear filter' %}"><i class="mdi mdi-close"></i> {% trans "Clear" %}</a>
+      {% endif %}
+      <span class="ms-auto small text-secondary">
+        {{ flt.start_date|date:"Y-m-d" }} &ndash; {{ flt.end_date|date:"Y-m-d" }}, {{ TIME_ZONE_NAME }}.
+        {% if oldest %}{% trans "Oldest record" %}: {{ oldest|date:"Y-m-d" }}{% else %}{% trans "The changelog is empty" %}{% endif %}
+      </span>
+    </form>
+  </div>
+</div>

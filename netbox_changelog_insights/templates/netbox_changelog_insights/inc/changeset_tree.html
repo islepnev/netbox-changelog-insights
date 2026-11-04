@@ -1,0 +1,28 @@
+{% load i18n insights %}
+<td colspan="7" class="p-0">
+  <div class="insights-tree px-3 py-2">
+    <table class="table table-sm table-borderless mb-1">
+      <tbody>
+        {% for record, folded in tree %}
+          <tr class="insights-primary">
+            <td class="text-nowrap" style="width:1%"><span class="badge text-bg-{{ record.action|action_color }}">{{ record.action|action_label }}</span></td>
+            <td><span class="text-secondary">{{ record.changed_object_type|type_name }}</span> <a href="{{ record.get_absolute_url }}">{{ record.object_repr }}</a></td>
+            <td class="text-end text-secondary small">{% if folded %}{% blocktrans count n=folded|length %}{{ n }} folded record{% plural %}{{ n }} folded records{% endblocktrans %}{% endif %}</td>
+          </tr>
+          {% for f, rule, depth in folded %}
+            <tr class="insights-folded text-secondary">
+              <td></td>
+              <td style="padding-left: {{ depth }}.25rem">
+                <i class="mdi mdi-subdirectory-arrow-right"></i>
+                <span class="badge bg-{{ f.action|action_color }}-lt">{{ f.action|action_label }}</span>
+                {{ f.changed_object_type|type_name }} <a href="{{ f.get_absolute_url }}" class="text-secondary">{{ f.object_repr }}</a>
+              </td>
+              <td class="text-end small">{% if rule == 'repeat' %}{% trans "same object" %}{% elif rule == 'cable' %}{% trans "cable termination" %}{% elif rule == 'cable fields' %}{% trans "cable fields only" %}{% else %}{% trans "part of the related object" %}{% endif %}</td>
+            </tr>
+          {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="small"><a href="{{ changelog_url }}">{% blocktrans count n=records|length %}Open {{ n }} record in the changelog{% plural %}Open all {{ n }} records in the changelog{% endblocktrans %}</a></div>
+  </div>
+</td>
