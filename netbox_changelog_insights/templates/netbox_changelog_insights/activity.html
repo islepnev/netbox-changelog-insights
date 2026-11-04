@@ -4,9 +4,8 @@
 {% block title %}{% trans "Activity" %}{% endblock %}
 {% block head %}{% include 'netbox_changelog_insights/inc/head.html' %}{% endblock %}
 
-{% block subtitle %}
-  <div class="text-secondary">{% trans "Primary changes over time, split by action, user, app, object type, site or tenant; change sets by weekday and hour." %}</div>
-{% endblock %}
+{# No page title: the active tab names the page #}
+{% block page-header %}{% endblock %}
 
 {% block tabs %}{% include 'netbox_changelog_insights/inc/tabs.html' with active='activity' %}{% endblock %}
 

@@ -20,7 +20,7 @@
       <input type="hidden" name="period" value="custom">
       {% for key, value in flt.params.items %}{% if key != 'period' and key != 'start' and key != 'end' %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}{% endfor %}
       {% for key, value in extra_params.items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
-      <label class="form-label mb-0 ms-2 text-secondary" for="id_start">{% trans "From" %}</label>
+      <label class="form-label mb-0 ms-2 text-secondary" for="id_start" title="{% blocktrans with tz=TIME_ZONE_NAME %}Days in {{ tz }}{% endblocktrans %}">{% trans "From" %}</label>
       <input type="date" id="id_start" name="start" value="{{ flt.start_date|date:'Y-m-d' }}" class="form-control form-control-sm w-auto">
       <label class="form-label mb-0 text-secondary" for="id_end">{% trans "to" %}</label>
       <input type="date" id="id_end" name="end" value="{{ flt.end_date|date:'Y-m-d' }}" class="form-control form-control-sm w-auto">
@@ -35,10 +35,11 @@
         {% if flt.tenant_id is not None %}<span class="badge text-bg-secondary" title="{% trans 'Links to the core changelog do not keep this filter' %}">{% trans "Tenant" %}: {{ flt.tenant }}</span>{% endif %}
         <a href="{{ clear_url }}" class="btn btn-sm btn-ghost-danger" title="{% trans 'Clear filter' %}"><i class="mdi mdi-close"></i> {% trans "Clear" %}</a>
       {% endif %}
-      <span class="ms-auto small text-secondary">
-        {{ flt.start_date|date:"Y-m-d" }} &ndash; {{ flt.end_date|date:"Y-m-d" }}, {{ TIME_ZONE_NAME }}.
-        {% if oldest %}{% trans "Oldest record" %}: {{ oldest|date:"Y-m-d" }}{% else %}{% trans "The changelog is empty" %}{% endif %}
-      </span>
+      {% if not oldest %}
+        <span class="ms-auto small text-secondary">{% trans "The changelog is empty" %}</span>
+      {% elif oldest|date:"Y-m-d" > flt.start_date|date:"Y-m-d" %}
+        <span class="ms-auto small text-secondary">{% trans "The changelog starts on" %} {{ oldest|date:"Y-m-d" }}</span>
+      {% endif %}
     </form>
   </div>
 </div>

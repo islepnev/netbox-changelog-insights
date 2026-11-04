@@ -4,9 +4,8 @@
 {% block title %}{% trans "Scope" %}{% endblock %}
 {% block head %}{% include 'netbox_changelog_insights/inc/head.html' %}{% endblock %}
 
-{% block subtitle %}
-  <div class="text-secondary">{% trans "Activity per site or tenant of the changed objects. Counts are primary changes; side effects are folded." %}</div>
-{% endblock %}
+{# No page title: the active tab names the page #}
+{% block page-header %}{% endblock %}
 
 {% block tabs %}{% include 'netbox_changelog_insights/inc/tabs.html' with active='scope' %}{% endblock %}
 
@@ -71,6 +70,7 @@
     </div>
   </div>
   <div class="small text-secondary mt-2">
+    {% trans "Counts are primary changes; side effects are folded." %}
     {% trans "A change set that touches several sites or tenants (a cable between two sites) counts in each, so the rows can add up to more than the total." %}
     {% if total.change_sets %}{% blocktrans with n=total.change_sets %}Total: {{ n }} change sets.{% endblocktrans %}{% endif %}
     {% trans "The site comes from the object, its device or virtual machine, or the interface it is assigned to; the tenant from the object, else its device or virtual machine." %}
