@@ -34,38 +34,28 @@ def bar_chart(days, ticks=6):
     return {'bars': bars, 'peak': peak}
 
 
-def sparkline(values, peak, weeks, start=None, end=None, width=80, height=24):
+def sparkline(values, peak, weeks, start=None, end=None):
     """
-    SVG polylines for a weekly series, scaled to a shared peak. A week that the period
-    [start, end] (dates, inclusive) covers only in part has a lower count for that reason:
-    the segments to its point are dashed and its title tells the days covered.
+    Weekly columns, height in percent of a shared peak (a non-zero week is never lower than
+    a visible stub). A week that the period [start, end] (dates, inclusive) covers only in
+    part has a lower count for that reason: it is marked and its title tells the days covered.
     """
     if not values:
         return None
-    n = len(values)
-    dx = width / max(n - 1, 1)
-    pad = 2
-    points = []
-    for i, v in enumerate(values):
-        y = height - pad - ((height - 2 * pad) * v / peak if peak else 0)
-        points.append(f'{i * dx:.1f},{y:.1f}')
-    covered = [7] * n
+    covered = [7] * len(values)
     if start is not None and end is not None:
         for i, w in enumerate(weeks):
             first, last = max(w, start), min(w + timedelta(days=6), end)
             covered[i] = max(0, (last - first).days + 1)
-    partial = [c < 7 for c in covered]
-    solid, dashed = [], []
-    for i in range(n - 1):
-        segment = f'{points[i]} {points[i + 1]}'
-        (dashed if partial[i] or partial[i + 1] else solid).append(segment)
-    titles = []
+    bars = []
     for w, v, c in zip(weeks, values, covered):
         note = f' ({c} of 7 days)' if c < 7 else ''
-        titles.append(f"{date_format(w, 'M j')}: {v}{note}")
-    return {
-        'solid': solid, 'dashed': dashed, 'width': width, 'height': height, 'title': ', '.join(titles),
-    }
+        bars.append({
+            'height': round(100 * v / peak, 1) if peak and v else 0,
+            'partial': c < 7,
+            'title': f"{date_format(w, 'M j')}: {v}{note}",
+        })
+    return {'bars': bars, 'title': ', '.join(b['title'] for b in bars)}
 
 
 def stacked_chart(data, by, ticks=6):

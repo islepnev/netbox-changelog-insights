@@ -6,7 +6,16 @@
 .insights-bar-fill { width: 100%; border-radius: 2px 2px 0 0; }
 .insights-ticks { display: flex; gap: 2px; margin-top: 4px; }
 .insights-ticks > div { flex: 1 1 0; min-width: 2px; white-space: nowrap; overflow: visible; }
-.insights-sparkline { color: var(--tblr-primary); }
+/* Weekly columns fill the row height (the cell is as tall as its tallest neighbour, 2.5rem at least),
+   a 2px gap between weeks; a zero week keeps a faint baseline, a partial week is pale. */
+.insights-weekly-cell { position: relative; min-width: 7rem; padding: 0 !important; }
+.insights-weekly-cell::before { content: ""; display: block; min-height: 2.5rem; }
+.insights-weekly { position: absolute; inset: .375rem .5rem; display: flex; align-items: stretch; gap: 2px; }
+.insights-week { flex: 1 1 0; min-width: 2px; display: flex; align-items: flex-end; border-bottom: 1px solid var(--tblr-border-color); }
+.insights-week:hover { background: var(--tblr-active-bg, rgba(0, 0, 0, .05)); }
+.insights-week-fill { width: 100%; background: var(--tblr-primary); border-radius: 2px 2px 0 0; }
+.insights-week-fill:not([style*="height: 0%"]) { min-height: 2px; }
+.insights-week.partial .insights-week-fill { opacity: .45; }
 .insights-changeset-row[role="button"] { cursor: pointer; }
 .insights-changeset-row[role="button"]:hover { background: var(--tblr-active-bg, rgba(0, 0, 0, .05)); }
 .insights-chevron { display: inline-block; transition: transform .15s; }

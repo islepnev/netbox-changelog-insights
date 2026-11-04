@@ -358,15 +358,17 @@ class ViewTestCase(TestCase):
 
 class SparklineTestCase(TestCase):
 
-    def test_partial_weeks_are_dashed(self):
+    def test_partial_weeks_are_marked(self):
         from datetime import date
         from netbox_changelog_insights.charts import sparkline
         # Period Wed 2026-10-07 .. Wed 2026-10-28: four weeks, first and last in part.
         weeks = [date(2026, 10, 5), date(2026, 10, 12), date(2026, 10, 19), date(2026, 10, 26)]
         s = sparkline([3, 5, 4, 1], 5, weeks, date(2026, 10, 7), date(2026, 10, 28))
-        self.assertEqual((len(s['solid']), len(s['dashed'])), (1, 2))
+        self.assertEqual([b['partial'] for b in s['bars']], [True, False, False, True])
+        self.assertEqual([b['height'] for b in s['bars']], [60.0, 100.0, 80.0, 20.0])
         self.assertIn('Oct 5: 3 (5 of 7 days)', s['title'])
         self.assertIn('Oct 26: 1 (3 of 7 days)', s['title'])
         self.assertIn('Oct 12: 5,', s['title'])
         full = sparkline([1, 2], 2, weeks[1:3], date(2026, 10, 12), date(2026, 10, 25))
-        self.assertEqual((len(full['solid']), len(full['dashed'])), (1, 0))
+        self.assertFalse(any(b['partial'] for b in full['bars']))
+        self.assertEqual(sparkline([0, 0], 0, weeks[1:3])['bars'][0]['height'], 0)
