@@ -1,0 +1,8 @@
+{% extends 'generic/_base.html' %}
+{% load i18n %}
+{% block title %}{% trans "Change set" %} {{ request_id }}{% endblock %}
+{% block head %}{% include 'netbox_changelog_insights/inc/head.html' %}{% endblock %}
+{% block subtitle %}<div class="text-secondary">{{ first.time|date:"Y-m-d H:i:s" }}, {{ first.user.username|default:first.user_name }}</div>{% endblock %}
+{% block content %}
+  <div class="card"><table class="table mb-0"><tbody><tr>{% include 'netbox_changelog_insights/inc/changeset_tree.html' %}</tr></tbody></table></div>
+{% endblock %}

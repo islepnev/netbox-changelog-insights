@@ -1,0 +1,22 @@
+from netbox.plugins import PluginMenu, PluginMenuItem
+
+PERMISSIONS = ['core.view_objectchange']
+
+menu = PluginMenu(
+    label='Insights',
+    icon_class='mdi mdi-chart-timeline-variant',
+    groups=(
+        ('Changelog', (
+            PluginMenuItem(
+                link='plugins:netbox_changelog_insights:pulse',
+                link_text='Pulse',
+                permissions=PERMISSIONS,
+            ),
+            PluginMenuItem(
+                link='plugins:netbox_changelog_insights:contributors',
+                link_text='Contributors',
+                permissions=PERMISSIONS,
+            ),
+        )),
+    ),
+)

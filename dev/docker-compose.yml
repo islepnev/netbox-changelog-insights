@@ -1,0 +1,49 @@
+# Development NetBox 4.6.4 with this plugin, after netbox-docker.
+#   docker compose -f dev/docker-compose.yml up -d
+#   open http://localhost:8001 (admin / admin)
+#   docker compose -f dev/docker-compose.yml exec netbox \
+#     /opt/netbox/venv/bin/python /opt/netbox-changelog-insights/dev/generate_changelog.py --scale 0.25
+name: changelog-insights-dev
+services:
+  netbox:
+    image: netboxcommunity/netbox:v4.6.4
+    depends_on: [postgres, redis]
+    ports: ["8001:8080"]
+    environment:
+      DB_HOST: postgres
+      DB_NAME: netbox
+      DB_USER: netbox
+      DB_PASSWORD: netbox
+      REDIS_HOST: redis
+      REDIS_CACHE_HOST: redis
+      SECRET_KEY: dev-only-secret-key-0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGH
+      API_TOKEN_PEPPER_1: dev-only-pepper-0123456789abcdefghijklmnopqrstuvwxyz
+      SUPERUSER_NAME: admin
+      SUPERUSER_PASSWORD: admin
+      SUPERUSER_EMAIL: admin@example.com
+      SKIP_SUPERUSER: "false"
+      TIME_ZONE: Europe/Moscow
+      GENERATE_ALLOW: "1"
+      NETBOX_ROOT: /opt/netbox/netbox
+      PYTHONPATH: /opt/netbox-changelog-insights
+    volumes:
+      - ..:/opt/netbox-changelog-insights:ro
+      - ./plugins.py:/etc/netbox/config/plugins.py:ro
+    # docker-entrypoint.sh migrates and creates the superuser. Then collect the plugin
+    # static files and start Granian on IPv4 (the image listens on "::" only).
+    command:
+      - /opt/netbox/docker-entrypoint.sh
+      - sh
+      - -c
+      - >-
+        /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py collectstatic --no-input -v0 &&
+        sed 's/--host "::"/--host 0.0.0.0/' /opt/netbox/launch-netbox.sh > /tmp/launch-netbox.sh &&
+        exec bash /tmp/launch-netbox.sh
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: netbox
+      POSTGRES_USER: netbox
+      POSTGRES_PASSWORD: netbox
+  redis:
+    image: valkey/valkey:8-alpine
