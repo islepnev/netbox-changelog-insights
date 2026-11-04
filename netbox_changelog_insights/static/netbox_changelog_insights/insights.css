@@ -1,0 +1,16 @@
+/* Changelog Insights. Colors come from the NetBox (Tabler) theme variables. */
+.insights-bars { display: flex; align-items: flex-end; gap: 2px; height: 140px; }
+.insights-bar { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; min-width: 2px; }
+.insights-bar:hover { background: var(--tblr-active-bg, rgba(0, 0, 0, .05)); }
+.insights-bar.weekend { background: var(--tblr-bg-surface-secondary, rgba(0, 0, 0, .03)); }
+.insights-bar-fill { width: 100%; border-radius: 2px 2px 0 0; }
+.insights-ticks { display: flex; gap: 2px; margin-top: 4px; }
+.insights-ticks > div { flex: 1 1 0; min-width: 2px; white-space: nowrap; overflow: visible; }
+.insights-sparkline { color: var(--tblr-primary); }
+.insights-changeset-row[role="button"] { cursor: pointer; }
+.insights-changeset-row[role="button"]:hover { background: var(--tblr-active-bg, rgba(0, 0, 0, .05)); }
+.insights-chevron { display: inline-block; transition: transform .15s; }
+.insights-changeset-row[aria-expanded="true"] .insights-chevron { transform: rotate(90deg); }
+.insights-changeset-row[aria-expanded="true"] { background: var(--tblr-active-bg, rgba(0, 0, 0, .05)); }
+.insights-tree { background: var(--tblr-bg-surface-secondary); border-left: 3px solid var(--tblr-primary); }
+.insights-tree .table { background: transparent; --tblr-table-bg: transparent; }

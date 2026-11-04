@@ -1,0 +1,11 @@
+{% load i18n %}
+<div class="insights-bars" role="img" aria-label="{% trans 'Change sets per day' %}">
+  {% for b in chart.bars %}
+    <div class="insights-bar{% if b.weekend %} weekend{% endif %}" title="{{ b.day|date:'D, Y-m-d' }}: {{ b.change_sets }} {% trans 'change sets' %}, {{ b.records }} {% trans 'records' %}">
+      <div class="insights-bar-fill bg-primary" style="height: {{ b.height|stringformat:'s' }}%"></div>
+    </div>
+  {% endfor %}
+</div>
+<div class="insights-ticks small text-secondary">
+  {% for b in chart.bars %}<div>{{ b.tick }}</div>{% endfor %}
+</div>
