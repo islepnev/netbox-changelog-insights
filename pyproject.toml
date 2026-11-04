@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netbox-changelog-insights"
+version = "0.1.0"
+description = "NetBox plugin: insights into the changelog, in the manner of GitHub Insights"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+classifiers = [
+    "Framework :: Django",
+    "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Source = "https://github.com/islepnev/netbox-changelog-insights"
+
+[tool.setuptools.packages.find]
+include = ["netbox_changelog_insights*"]
+
+[tool.setuptools.package-data]
+netbox_changelog_insights = ["templates/**/*.html", "static/**/*"]
