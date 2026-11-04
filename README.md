@@ -16,7 +16,7 @@ The unit is the change set: the records that share a `request_id`. Side effects 
 ## Install
 
 ```
-pip install netbox-changelog-insights
+pip install git+https://github.com/islepnev/netbox-changelog-insights
 ```
 
 `configuration.py`:
