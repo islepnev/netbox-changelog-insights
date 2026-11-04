@@ -5,8 +5,16 @@ from django.utils.formats import date_format
 
 __all__ = (
     'bar_chart',
+    'heatmap',
     'sparkline',
+    'stacked_chart',
 )
+
+# Categorical series: fixed order, validated for color vision deficiency in light and dark
+# (CSS classes insights-s1 to insights-s6 in insights.css); "other" is gray.
+SERIES = 6
+WEEKDAYS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+HEAT_STEPS = 6
 
 
 def bar_chart(days, ticks=6):
@@ -58,3 +66,49 @@ def sparkline(values, peak, weeks, start=None, end=None, width=80, height=24):
     return {
         'solid': solid, 'dashed': dashed, 'width': width, 'height': height, 'title': ', '.join(titles),
     }
+
+
+def stacked_chart(data, by, ticks=6):
+    """
+    Stacked bars of primary changes per bucket. Each segment: height in percent of the
+    tallest bar, CSS class of its group. A bucket that the period covers in part is marked.
+    """
+    groups = data['groups']
+    for i, g in enumerate(groups):
+        if g['key'] == 'other':
+            g['css'] = 'insights-other'
+        elif by == 'action':
+            g['css'] = {'create': 'bg-green', 'update': 'bg-blue', 'delete': 'bg-red'}[g['key']]
+        else:
+            # A seventh group takes the gray of "other": the palette has six validated slots.
+            g['css'] = f'insights-s{i + 1}' if i < SERIES else 'insights-other'
+    buckets = data['buckets']
+    peak = max((b['total'] for b in buckets), default=0)
+    step = max(1, round(len(buckets) / ticks))
+    bars = []
+    for i, b in enumerate(buckets):
+        segments = [
+            {'css': g['css'], 'value': v, 'label': g['label'], 'height': round(100 * v / peak, 2) if peak else 0}
+            for g, v in zip(groups, b['counts']) if v
+        ]
+        bars.append({
+            'start': b['start'], 'total': b['total'], 'change_sets': b['change_sets'],
+            'segments': segments, 'partial': b['days'] < b['full_days'], 'days': b['days'],
+            'tick': date_format(b['start'], 'M j') if i % step == 0 else '',
+            'weekend': b['full_days'] == 1 and b['start'].weekday() >= 5,
+        })
+    return {'bars': bars, 'peak': peak, 'groups': groups}
+
+
+def heatmap(grid):
+    """Change sets per weekday (rows, Monday first) and hour: a step from 0 (none) to HEAT_STEPS."""
+    peak = max((v for row in grid for v in row), default=0)
+    rows = []
+    for day, values in zip(WEEKDAYS, grid):
+        cells = []
+        for hour, v in enumerate(values):
+            level = 0 if not v or not peak else max(1, round(HEAT_STEPS * v / peak))
+            cells.append({'hour': hour, 'value': v, 'level': level})
+        rows.append({'day': day, 'cells': cells, 'total': sum(values)})
+    hours = [sum(row[h] for row in grid) for h in range(24)]
+    return {'rows': rows, 'hours': hours, 'peak': peak, 'total': sum(hours), 'steps': range(1, HEAT_STEPS + 1)}

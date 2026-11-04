@@ -15,6 +15,7 @@ from .folding import fold_tree
 from .insights import Insights
 
 __all__ = (
+    'ActivityView',
     'ChainsView',
     'ChangeSetView',
     'ContributorsView',
@@ -112,6 +113,48 @@ class ContributorsView(InsightsView):
             'person': flt.url(self.viewname, kind='person'),
             'automation': flt.url(self.viewname, kind='automation'),
         }
+        return render(request, self.template_name, context)
+
+
+class ActivityView(InsightsView):
+    template_name = 'netbox_changelog_insights/activity.html'
+    viewname = 'plugins:netbox_changelog_insights:activity'
+    dimensions = (('action', 'Action'), ('user', 'User'), ('app', 'App'), ('model', 'Object type'))
+
+    def get(self, request):
+        flt = InsightsFilter.from_request(request)
+        by = request.GET.get('by')
+        by = by if by in dict(self.dimensions) else 'action'
+        bucket = request.GET.get('bucket')
+        bucket = bucket if bucket in ('day', 'week') else ('day' if flt.days <= 92 else 'week')
+        insights = Insights(request.user, flt)
+        data = insights.activity_page(by, bucket)
+        chart = charts.stacked_chart(data, by)
+        # A group links to this page filtered by it and split by the next dimension (drill down).
+        drill = {'action': 'user', 'user': 'model', 'app': 'model', 'model': 'user'}[by]
+        total = sum(g['total'] for g in chart['groups'])
+        for g in chart['groups']:
+            share = 100 * g['total'] / total if total else 0
+            g['share'] = '<1%' if 0 < share < 1 else f'{share:.0f}%'
+            g['filter_url'] = flt.url(self.viewname, by=drill, bucket=bucket, **g['params']) if g['params'] else None
+        context = self.base_context(request, flt, insights)
+        extra = {'by': by, 'bucket': bucket}
+        context['tab_query'] = urlencode(flt.params())
+        context['period_urls'] = [
+            (str(p), flt.url(self.viewname, period=p, start=None, end=None, **extra)) for p in PERIODS
+        ]
+        context['clear_url'] = flt.url(
+            self.viewname, user_id=None, user_name=None, type_id=None, action=None, kind=None, onboarding=None, **extra,
+        )
+        context.update({
+            'by': by,
+            'bucket': bucket,
+            'chart': chart,
+            'heat': charts.heatmap(data['heat']),
+            'extra_params': extra,
+            'by_urls': [(k, label, flt.url(self.viewname, by=k, bucket=bucket)) for k, label in self.dimensions],
+            'bucket_urls': [(b, flt.url(self.viewname, by=by, bucket=b)) for b in ('day', 'week')],
+        })
         return render(request, self.template_name, context)
 
 

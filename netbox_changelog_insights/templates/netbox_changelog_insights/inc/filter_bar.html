@@ -19,6 +19,7 @@
       </div>
       <input type="hidden" name="period" value="custom">
       {% for key, value in flt.params.items %}{% if key != 'period' and key != 'start' and key != 'end' %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}{% endfor %}
+      {% for key, value in extra_params.items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
       <label class="form-label mb-0 ms-2 text-secondary" for="id_start">{% trans "From" %}</label>
       <input type="date" id="id_start" name="start" value="{{ flt.start_date|date:'Y-m-d' }}" class="form-control form-control-sm w-auto">
       <label class="form-label mb-0 text-secondary" for="id_end">{% trans "to" %}</label>
