@@ -2,7 +2,7 @@
 
 NetBox plugin: insights into the changelog, in the manner of GitHub Insights. Who changed what, when and how much, grouped by user, object type, action and time.
 
-Status: first version. Pages: Pulse, Contributors. Design: [docs/design.md](docs/design.md).
+Status: first version. Pages: Pulse, Contributors, Chains; REST API for Grafana. Design: [docs/design.md](docs/design.md).
 
 Target: NetBox 4.6 (`min_version` 4.6.0). No models, no migrations.
 
@@ -36,6 +36,18 @@ PLUGINS_CONFIG = {
 ```
 
 Then run `manage.py collectstatic`.
+
+## API for Grafana
+
+`GET /api/plugins/changelog-insights/activity/` returns aggregates as a flat JSON array, for the Grafana Infinity data source. Parameters: `group` (`day`, `week`, `user`, `type`), `from` and `to` in milliseconds (Grafana `${__from}`, `${__to}`) or `period`, `start`, `end` as on the pages, filters `user_id`, `user_name`, `type_id`, `action`, `kind` (`person`, `automation`, `all`), `limit` (top lists, default 10, at most 100). Authentication: a NetBox API token (`Authorization: Bearer nbt_<key>.<token>`); permission `core.view_objectchange`. `max_period_days` applies; the header `X-Period-Cut-From` then names the first day asked for.
+
+```
+curl -H "Authorization: Bearer nbt_<key>.<token>" \
+  "https://netbox.example.com/api/plugins/changelog-insights/activity/?group=day&period=30"
+[{"time": "2026-10-06T00:00:00+00:00", "change_sets": 214, "changes": 260, "records": 731, "created": 98, "updated": 141, "deleted": 21}, ...]
+```
+
+[docs/grafana-row.json](docs/grafana-row.json): a row of four panels (totals, change sets per day or week, top users, top object types) on this endpoint. Copy `panels` and `templating.list` into a dashboard; set the Infinity data source URL to the NetBox base URL and its `Authorization` header to the token.
 
 ## Development
 

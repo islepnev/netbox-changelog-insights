@@ -61,7 +61,7 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 | Activity | Series over time grouped by one dimension (user, app, model, action); weekday × hour heatmap | M |
 | Actor kind | Person/automation split on all pages | S |
 | Hotspots | Most changed objects; most changed fields per model | M |
-| API | Aggregates over REST for Grafana | S |
+| API | Aggregates over REST for Grafana: `activity/` by day, week, user, type; Grafana row in `docs/grafana-row.json` (done) | S |
 | Scope | Grouping by site and tenant, resolved from object data or the related object | L |
 
 ## Out of scope
