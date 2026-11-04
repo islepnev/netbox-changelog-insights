@@ -26,7 +26,7 @@ def bar_chart(days, ticks=6):
     return {'bars': bars, 'peak': peak}
 
 
-def sparkline(values, peak, weeks, start=None, end=None, width=96, height=24):
+def sparkline(values, peak, weeks, start=None, end=None, width=80, height=24):
     """
     SVG polylines for a weekly series, scaled to a shared peak. A week that the period
     [start, end] (dates, inclusive) covers only in part has a lower count for that reason:
