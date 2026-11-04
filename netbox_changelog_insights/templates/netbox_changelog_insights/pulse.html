@@ -78,7 +78,7 @@
           <div class="card-actions"><a href="{{ contributors_url }}" class="small">{% trans "All contributors" %}</a></div>
         </div>
         <div class="table-responsive">
-          <table class="table table-sm table-hover card-table mb-0">
+          <table class="table table-sm table-hover card-table mb-0 insights-compact">
             <thead><tr><th>{% trans "User" %}</th><th class="text-end" title="{% trans 'Change sets' %}">{% trans "Sets" %}</th><th class="text-end">{% trans "Created" %}</th><th class="text-end">{% trans "Updated" %}</th><th class="text-end">{% trans "Deleted" %}</th></tr></thead>
             <tbody>
               {% for u in pulse.top_users %}

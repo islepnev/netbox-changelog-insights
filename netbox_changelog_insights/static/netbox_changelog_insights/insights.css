@@ -14,3 +14,10 @@
 .insights-changeset-row[aria-expanded="true"] { background: var(--tblr-active-bg, rgba(0, 0, 0, .05)); }
 .insights-tree { background: var(--tblr-bg-surface-secondary); border-left: 3px solid var(--tblr-primary); }
 .insights-tree .table { background: transparent; --tblr-table-bg: transparent; }
+/* Compact tables (Contributors, top users): fit at about 1000 px without a horizontal scroll. */
+@media (max-width: 1399.98px) {
+  .table.insights-compact > :not(caption) > * > * { padding-left: .375rem; padding-right: .375rem; }
+  .table.insights-compact thead th { white-space: normal; }
+  .card-table.insights-compact tr > :first-child { padding-left: .75rem; }
+  .card-table.insights-compact tr > :last-child { padding-right: .75rem; }
+}

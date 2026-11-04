@@ -1,86 +1,120 @@
-# netbox-changelog-insights
+# NetBox Changelog Insights
 
-NetBox plugin: insights into the changelog, in the manner of GitHub Insights. Who changed what, when and how much, grouped by user, object type, action and time.
+[![test](https://github.com/islepnev/netbox-changelog-insights/actions/workflows/test.yml/badge.svg)](https://github.com/islepnev/netbox-changelog-insights/actions/workflows/test.yml)
+[![NetBox](https://img.shields.io/badge/NetBox-4.6%20%7C%204.7-blue)](https://github.com/netbox-community/netbox)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](pyproject.toml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 
-Status: first version. Pages: Pulse, Contributors, Chains; REST API for Grafana. Design: [docs/design.md](docs/design.md).
+**Who changes your NetBox, what and how much.** The core changelog is a flat list of records: it tells what happened to one object, not where the work goes. This plugin groups the changelog into change sets and shows activity by user, object type and time, in the manner of GitHub Insights.
 
-Target: NetBox 4.6 (`min_version` 4.6.0). No models, no migrations.
+![Pulse: change sets, records and primary changes of 90 days, change sets per day, top users, object types and objects, recent change sets](docs/img/hero.png)
 
-## Pages
+A NetBox plugin. Reads the changelog in place: no models, no migrations, no copy of the data.
 
-- Pulse: change sets, records by action, primary changes, active users (people and automation), change sets per day, top users, top object types, most changed objects, recent change sets. Click a change set to show its folded records.
-- Contributors: per user, change sets, created, updated, deleted, weekly change sets, top types, first and last change.
-- Chains: change sets about one device or virtual machine over time (for example the onboarding of a server), with stages, duration and users. Click a chain to show its change sets.
+## What you can see
 
-The unit is the change set: the records that share a `request_id`. Side effects fold into their cause (design decision 3); counts and rankings use primary changes. Every number links to the core changelog (`/core/changelog/`) with the same filter. The pages require `core.view_objectchange` and show only the records that the user may view. Days and weeks use NetBox `TIME_ZONE`.
+- **Pulse.** A period at a glance: change sets, records by action, active people and automation accounts, change sets per day, top users, object types and most changed objects, the latest change sets. Click a change set to see all its records.
+- **Contributors.** Per user: change sets, created, updated and deleted objects, a weekly trend, top object types, first and last change. Split people from automation with one user group.
+- **Chains.** The change sets about one device or virtual machine over days, for example the onboarding of a server: stages, duration, who took part.
+- **Grafana.** The same aggregates over the REST API, and a ready row of panels for the Infinity data source.
+
+Every number links to the core changelog with the same filter. Days and weeks follow the NetBox `TIME_ZONE`.
+
+| Pulse | Contributors | Chains |
+|---|---|---|
+| ![Pulse](docs/img/pulse.png) | ![Contributors](docs/img/contributors.png) | ![Chains](docs/img/chains.png) |
+
+The screenshots use a synthetic changelog (`dev/generate_changelog.py`); no real data is shown.
+
+## How the numbers are counted
+
+The unit is the change set: the records of one request (`request_id`). Side effects fold into their cause, so that a change counts once. Creating one cable writes six records; the plugin counts one change set and one primary change, and shows the other five on click.
+
+![A change set of six records: a new cable is the primary change; its extra update, two terminations and the cable fields of two interfaces fold into it](docs/img/change-set.svg)
+
+Records fold when they are a further record of the same object, components created with their device, cable terminations and cable-only updates of a new cable, or a primary IP update made with its IP address. The rules and their checks are in [docs/design.md](docs/design.md).
+
+## Requirements
+
+- NetBox 4.6 or 4.7 (tested on 4.6.4, 4.6.10, 4.7.4)
+- PostgreSQL, as NetBox
+- Python 3.12 or later
 
 ## Install
 
-```
+```bash
 pip install git+https://github.com/islepnev/netbox-changelog-insights
 ```
 
-`configuration.py`:
+In `configuration.py`:
 
 ```python
 PLUGINS = ['netbox_changelog_insights']
-PLUGINS_CONFIG = {
-    'netbox_changelog_insights': {
-        'automation_group': 'automation',  # user group of automation accounts; None: no split
-        'cache_ttl': 300,                  # seconds; 0 disables the cache
-        'chain_gap_hours': 168,            # chains: longest gap between change sets on one device or VM
-        'automation_gap_hours': 24,        # chains: longest gap that automation alone may bridge
-        'max_period_days': None,           # longest period of a page, in days; None: no limit
-    },
-}
 ```
 
-Then run `manage.py collectstatic`.
+Then `manage.py collectstatic`, and restart NetBox. The pages are under Insights in the menu.
+
+## Configuration
+
+All settings are optional: `PLUGINS_CONFIG = {'netbox_changelog_insights': {...}}`.
+
+| Setting | Default | Description |
+|---|---|---|
+| `automation_group` | `None` | User group of automation accounts. Unset: no split into people and automation |
+| `cache_ttl` | `300` | Cache lifetime of the aggregates, seconds; `0` disables the cache |
+| `max_period_days` | `None` | Longest period of a page or API call, days; a longer one keeps its last days. Unset: no limit |
+| `chain_gap_hours` | `168` | Chains: longest gap between change sets on one device or VM |
+| `automation_gap_hours` | `24` | Chains: longest gap that automation alone may bridge |
+
+## Permissions and performance
+
+The pages and the API require `core.view_objectchange`, as the core changelog, and show only the records the user may view. Aggregates are SQL over the indexed time range and are cached per filter.
 
 ## API for Grafana
 
-`GET /api/plugins/changelog-insights/activity/` returns aggregates as a flat JSON array, for the Grafana Infinity data source. Parameters: `group` (`day`, `week`, `user`, `type`), `from` and `to` in milliseconds (Grafana `${__from}`, `${__to}`) or `period`, `start`, `end` as on the pages, filters `user_id`, `user_name`, `type_id`, `action`, `kind` (`person`, `automation`, `all`), `limit` (top lists, default 10, at most 100). Authentication: a NetBox API token (`Authorization: Bearer nbt_<key>.<token>`); permission `core.view_objectchange`. `max_period_days` applies; the header `X-Period-Cut-From` then names the first day asked for.
+`GET /api/plugins/changelog-insights/activity/` returns a flat JSON array for the Grafana Infinity data source.
 
-```
+| Parameter | Values |
+|---|---|
+| `group` | `day`, `week` (time series), `user`, `type` (top lists) |
+| `from`, `to` | Milliseconds since the epoch: Grafana `${__from}`, `${__to}`. Or `period` (`7`, `30`, `90`, `custom`) with `start`, `end` |
+| `user_id`, `user_name`, `type_id`, `action`, `kind` | Filters; `kind`: `person`, `automation` or `all` |
+| `limit` | Rows of a top list: default 10, at most 100 |
+
+```bash
 curl -H "Authorization: Bearer nbt_<key>.<token>" \
-  "https://netbox.example.com/api/plugins/changelog-insights/activity/?group=day&period=30"
-[{"time": "2026-10-06T00:00:00+03:00", "change_sets": 214, "changes": 260, "records": 731, "created": 98, "updated": 141, "deleted": 21}, ...]
+  "https://netbox.example.com/api/plugins/changelog-insights/activity/?group=day&period=7"
 ```
 
-[docs/grafana-row.json](docs/grafana-row.json): a row of four panels (totals, change sets per day or week, top users, top object types) on this endpoint. Copy `panels` and `templating.list` into a dashboard; set the Infinity data source URL to the NetBox base URL and its `Authorization` header to the token.
+```json
+[{"time": "2026-10-29T00:00:00+03:00", "change_sets": 236, "changes": 287, "created": 91,
+  "updated": 179, "deleted": 17, "records": 651}, ...]
+```
+
+`changes` counts primary changes, `records` all records. When `max_period_days` cuts the period, the header `X-Period-Cut-From` names the first day asked for.
+
+[docs/grafana-row.json](docs/grafana-row.json) is a row of four panels on this endpoint: totals, change sets per day or week, top users, top object types. Copy its `panels` and `templating.list` into a dashboard, and set the Infinity data source URL to the NetBox base URL with an `Authorization` header that holds the token.
+
+## Limitations
+
+- The core changelog list cannot filter by fold: a link from a count of primary changes opens a list that also holds the folded records.
+- No grouping by site or tenant yet.
+- Changes merged from `netbox_branching` are not treated in a special way.
+- Reach is bounded by `CHANGELOG_RETENTION`; every page shows the oldest available record.
 
 ## Development
 
-NetBox 4.6.4 in Docker, with the plugin from this checkout:
-
-```
-docker compose -f dev/docker-compose.yml up -d
-```
-
-Open http://localhost:8001 (admin / admin). Generate a synthetic changelog (profile from `docs/design.md`; `--scale 1` is about 20,000 change sets in 90 days):
-
-```
-docker compose -f dev/docker-compose.yml exec netbox /opt/netbox/venv/bin/python /opt/netbox-changelog-insights/dev/generate_changelog.py --scale 0.25
+```bash
+docker compose -f dev/docker-compose.yml up -d    # NetBox 4.6.4 with this checkout, http://localhost:8001, admin / admin
+python manage.py test netbox_changelog_insights   # in the NetBox directory, with the plugin installed
 ```
 
-Tests, in the NetBox directory with the plugin installed:
+Synthetic data, the audit tools for a real changelog and the timing script: [docs/development.md](docs/development.md). Design notes: [docs/design.md](docs/design.md).
 
-```
-python manage.py test netbox_changelog_insights
-```
+## Contributing
 
-## Fold audit
+Issues and pull requests are welcome. Run the tests before sending a change; CI runs them on NetBox 4.6 and 4.7. Contributions are accepted under the Apache License 2.0, as the rest of the project.
 
-`tools/fold_audit.py` measures the fold rules on a NetBox changelog over the REST API. It sends GET requests only and prints counts, with no names or values:
+## License
 
-```
-NETBOX_URL=https://netbox.example.com NETBOX_TOKEN=... python3 tools/fold_audit.py --days 90 > fold_audit.md
-```
-
-`tools/chain_audit.py` measures chains of change sets about one device or virtual machine over time (for example the onboarding of a server). It needs `fold_audit.py` in the same directory and has the same rules: GET requests only, counts and field names only:
-
-```
-NETBOX_URL=https://netbox.example.com NETBOX_TOKEN=... python3 tools/chain_audit.py --days 90 --automation-group automation > chain_audit.md
-```
-
-`dev/generate_changelog.py --onboardings N` adds N server onboardings spread over hours and days.
+Apache License 2.0, see [LICENSE](LICENSE). Free to use, modify and redistribute, commercially too. Redistributions and derivative works must keep the copyright and [NOTICE](NOTICE) with the author's name, Ilia Slepnev.
