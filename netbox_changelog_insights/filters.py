@@ -76,7 +76,11 @@ class InsightsFilter:
 
     @classmethod
     def from_request(cls, request, now=None):
-        form = InsightsFilterForm(request.GET)
+        return cls.from_params(request.GET, now)
+
+    @classmethod
+    def from_params(cls, params, now=None):
+        form = InsightsFilterForm(params)
         valid = form.is_valid()
         # Keep the valid fields; report and drop the others.
         data = form.cleaned_data

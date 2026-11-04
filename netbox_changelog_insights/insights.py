@@ -3,7 +3,7 @@ import contextlib
 import hashlib
 import statistics
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -11,6 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db import connection, transaction
 from django.db.models import Count, Max, Min, Q
+from django.db.models.functions import TruncDay, TruncWeek
 
 from core.models import ObjectChange
 from netbox.plugins import get_plugin_config
@@ -63,6 +64,11 @@ _GROUPS = {
     'user_week': (
         "SELECT 'user_week', user_id, user_name, NULL::bigint, date_trunc('week', time AT TIME ZONE %s)::date, {aggs} "
         "FROM p GROUP BY 2, 3, 5",
+        ('tz',),
+    ),
+    'week': (
+        "SELECT 'week', NULL::bigint, NULL::text, NULL::bigint, date_trunc('week', time AT TIME ZONE %s)::date, {aggs} "
+        "FROM p GROUP BY 5",
         ('tz',),
     ),
     'day': (
@@ -470,6 +476,56 @@ class Insights:
                     'url': obj.get_absolute_url() if obj is not None and hasattr(obj, 'get_absolute_url') else None,
                 }
         return out
+
+    # API for Grafana
+
+    def activity(self, group, limit=10):
+        """Flat rows for the REST API: group is 'day', 'week', 'user' or 'type'."""
+        return self._cached(f'activity-{group}-{limit}', lambda: self._activity_no_jit(group, limit))
+
+    def _activity_no_jit(self, group, limit):
+        with no_jit():
+            return self._activity(group, limit)
+
+    def _activity(self, group, limit):
+        def counts(r):
+            return {
+                'change_sets': r['change_sets'], 'changes': r['records'],
+                'created': r['create'], 'updated': r['update'], 'deleted': r['delete'],
+            }
+
+        if group in ('day', 'week'):
+            rows = {r['k4']: r for r in self.primary_groups((group,))[group]}
+            trunc = TruncDay if group == 'day' else TruncWeek
+            records = dict(self.records().annotate(b=trunc('time', tzinfo=self.tz)).order_by().values('b').annotate(
+                n=Count('pk')).values_list('b', 'n'))
+            records = {k.astimezone(self.tz).date(): n for k, n in records.items()}
+            step = timedelta(days=1 if group == 'day' else 7)
+            d = self.flt.start_date
+            if group == 'week':
+                d -= timedelta(days=d.weekday())
+            out = []
+            zero = {'change_sets': 0, 'records': 0, 'create': 0, 'update': 0, 'delete': 0}
+            while d <= self.flt.end_date:
+                out.append({
+                    'time': datetime.combine(d, time.min, self.tz).isoformat(),
+                    **counts(rows.get(d, zero)),
+                    'records': records.get(d, 0),
+                })
+                d += step
+            return out
+        if group == 'user':
+            groups = self.primary_groups(('user',))
+            users = self._users(groups['user'], self.records(), self.automation_user_ids())[:limit]
+            return [
+                {'user': u['user_name'], 'kind': u['kind'], 'user_deleted': u['deleted'], **counts(u | {
+                    'records': u['create'] + u['update'] + u['delete']}), 'records': u['records']}
+                for u in users
+            ]
+        if group == 'type':
+            rows = self._top_types(self.primary_groups(('type',))['type'], limit)
+            return [{'type': r['type_label'], **counts(r)} for r in rows]
+        raise ValueError(group)
 
     # Contributors
 
