@@ -124,7 +124,10 @@ class ContributorsView(InsightsView):
 class ActivityView(InsightsView):
     template_name = 'netbox_changelog_insights/activity.html'
     viewname = 'plugins:netbox_changelog_insights:activity'
-    dimensions = (('action', 'Action'), ('user', 'User'), ('app', 'App'), ('model', 'Object type'))
+    dimensions = (
+        ('action', 'Action'), ('user', 'User'), ('app', 'App'), ('model', 'Object type'), ('site', 'Site'),
+        ('tenant', 'Tenant'),
+    )
 
     def get(self, request):
         flt = InsightsFilter.from_request(request)
@@ -136,7 +139,9 @@ class ActivityView(InsightsView):
         data = insights.activity_page(by, bucket)
         chart = charts.stacked_chart(data, by)
         # A group links to this page filtered by it and split by the next dimension (drill down).
-        drill = {'action': 'user', 'user': 'model', 'app': 'model', 'model': 'user'}[by]
+        drill = {
+            'action': 'user', 'user': 'model', 'app': 'model', 'model': 'user', 'site': 'user', 'tenant': 'user',
+        }[by]
         total = sum(g['total'] for g in chart['groups'])
         for g in chart['groups']:
             share = 100 * g['total'] / total if total else 0
@@ -180,12 +185,12 @@ class ScopeView(InsightsView):
         pulse = 'plugins:netbox_changelog_insights:pulse'
         for g in data['groups']:
             g['sparkline'] = charts.sparkline(g['weekly'], peak, data['weeks'], flt.start_date, flt.end_date)
-            if g['key'] is not None:
-                g['filter_url'] = flt.url(pulse, **{f'{by}_id': g['key']})
-                g['activity_url'] = flt.url('plugins:netbox_changelog_insights:activity', by='user',
-                                            **{f'{by}_id': g['key']})
-                for t in g['top_types']:
-                    t['filter_url'] = flt.url(pulse, type_id=t['type_id'], **{f'{by}_id': g['key']})
+            # Records without a site or tenant: "null", as in NetBox filters.
+            value = {f'{by}_id': 'null' if g['key'] is None else g['key']}
+            g['filter_url'] = flt.url(pulse, **value)
+            g['activity_url'] = flt.url('plugins:netbox_changelog_insights:activity', by='user', **value)
+            for t in g['top_types']:
+                t['filter_url'] = flt.url(pulse, type_id=t['type_id'], **value)
         total = data['total']
         scoped = sum(g['records'] for g in data['groups'] if g['key'] is not None)
         context = self.base_context(request, flt, insights)

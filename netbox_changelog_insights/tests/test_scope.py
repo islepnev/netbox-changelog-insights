@@ -148,3 +148,25 @@ class ScopeTestCase(TestCase):
         self.assertIn(None, by_name)
         rows = self.client.get(reverse(ACTIVITY_API), {'group': 'day', 'period': '7', 'site_id': self.site2.pk}).json()
         self.assertEqual(sum(r['change_sets'] for r in rows), 3)
+
+    def test_no_scope_filter(self):
+        # "null": records without a tenant (the cable); in links it stays "null".
+        flt = InsightsFilter.from_params({'period': '7', 'tenant_id': 'null'})
+        self.assertEqual((flt.tenant_id, flt.params()['tenant_id'], flt.errors), (0, 'null', {}))
+        primary = Insights(self.user, flt).primary()
+        self.assertEqual(set(primary.values_list('request_id', flat=True)), {self.cable_rid})
+        self.client.force_login(self.user)
+        r = self.client.get(reverse('plugins:netbox_changelog_insights:pulse'), {'tenant_id': 'null'})
+        self.assertContains(r, 'Tenant: None')
+        r = self.client.get(reverse('plugins:netbox_changelog_insights:chains'), {'site_id': 'null'})
+        self.assertEqual(r.context['chains'], [])
+
+    def test_activity_split(self):
+        self.client.force_login(self.user)
+        r = self.client.get(reverse('plugins:netbox_changelog_insights:activity'), {'period': '7', 'by': 'tenant'})
+        groups = {g['label']: g for g in r.context['chart']['groups']}
+        self.assertEqual(groups['Tenant 1']['total'], 3)   # the device (interfaces fold), an IP address, the update
+        self.assertEqual(groups['No tenant']['total'], 1)
+        self.assertIn('tenant_id=null', groups['No tenant']['filter_url'])
+        r = self.client.get(reverse('plugins:netbox_changelog_insights:activity'), {'period': '7', 'by': 'site'})
+        self.assertEqual({g['label'] for g in r.context['chart']['groups']}, {'Site 1', 'Site 2'})

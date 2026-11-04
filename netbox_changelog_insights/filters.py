@@ -26,6 +26,8 @@ PERIODS = (7, 30, 90)
 DEFAULT_PERIOD = 30
 KIND_PERSON = 'person'
 KIND_AUTOMATION = 'automation'
+# site_id or tenant_id of records without a site or tenant; "null" in query strings.
+NO_SCOPE = 0
 
 
 def changeset_changelog_url(request_id):
@@ -36,6 +38,15 @@ def changeset_changelog_url(request_id):
 def local_tz():
     """NetBox TIME_ZONE (design decision 8)."""
     return ZoneInfo(settings.TIME_ZONE)
+
+
+class ScopeIdField(forms.IntegerField):
+    """Id of a site or tenant, or "null" (as in NetBox filters): records without one, stored as 0."""
+
+    def to_python(self, value):
+        if isinstance(value, str) and value.strip().lower() == 'null':
+            return NO_SCOPE
+        return super().to_python(value)
 
 
 class InsightsFilterForm(forms.Form):
@@ -53,8 +64,8 @@ class InsightsFilterForm(forms.Form):
         choices=[('', ''), (KIND_PERSON, _('Person')), (KIND_AUTOMATION, _('Automation'))],
         required=False,
     )
-    site_id = forms.IntegerField(required=False, min_value=1)
-    tenant_id = forms.IntegerField(required=False, min_value=1)
+    site_id = ScopeIdField(required=False, min_value=NO_SCOPE)
+    tenant_id = ScopeIdField(required=False, min_value=NO_SCOPE)
     onboarding = forms.BooleanField(required=False)
 
 
@@ -160,15 +171,18 @@ class InsightsFilter:
     @staticmethod
     def _scope_object(app, model, pk):
         """Name of a site or tenant; "#id" when it does not exist any more."""
-        if not pk:
+        if pk is None:
             return None
+        if pk == NO_SCOPE:
+            return str(_('None'))
         ct = ContentType.objects.get_by_natural_key(app, model)
         obj = ct.model_class().objects.filter(pk=pk).first()
         return str(obj) if obj is not None else f'#{pk}'
 
     @property
     def is_filtered(self):
-        return any((self.user_id, self.user_name, self.type_id, self.action, self.kind, self.site_id, self.tenant_id))
+        return any((self.user_id, self.user_name, self.type_id, self.action, self.kind)) or any(
+            v is not None for v in (self.site_id, self.tenant_id))
 
     # Query strings
 
@@ -178,9 +192,13 @@ class InsightsFilter:
         if self.period == 'custom':
             p['start'] = self.start_date.isoformat()
             p['end'] = self.end_date.isoformat()
-        for key in ('user_id', 'user_name', 'type_id', 'action', 'kind', 'site_id', 'tenant_id'):
+        for key in ('user_id', 'user_name', 'type_id', 'action', 'kind'):
             if getattr(self, key):
                 p[key] = getattr(self, key)
+        for key in ('site_id', 'tenant_id'):
+            value = getattr(self, key)
+            if value is not None:
+                p[key] = 'null' if value == NO_SCOPE else value
         if self.onboarding:
             p['onboarding'] = 1
         for key, value in override.items():

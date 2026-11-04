@@ -15,7 +15,7 @@ A NetBox plugin. Reads the changelog in place: no models, no migrations, no copy
 
 - **Pulse.** A period at a glance: change sets, records by action, active people and automation accounts, change sets per day, top users, object types and most changed objects, the latest change sets. Click a change set to see all its records.
 - **Contributors.** Per user: change sets, created, updated and deleted objects, a weekly trend, top object types, first and last change. Split people from automation with one user group.
-- **Activity.** Primary changes per day or week, split by action, user, app or object type, and change sets by weekday and hour: when people work and when automation runs. Click a group to drill down.
+- **Activity.** Primary changes per day or week, split by action, user, app, object type, site or tenant, and change sets by weekday and hour: when people work and when automation runs. Click a group to drill down.
 - **Hotspots.** The most changed objects and fields; click a field to see its values before and after.
 - **Scope.** Activity per site or per tenant: change sets, actions, objects, users, a weekly trend, top object types. Click a site or tenant to filter every page by it.
 - **Chains.** The change sets about one device or virtual machine over days, for example the onboarding of a server: stages, duration, who took part.
@@ -87,7 +87,7 @@ The pages and the API require `core.view_objectchange`, as the core changelog, a
 |---|---|
 | `group` | `day`, `week` (time series), `user`, `type`, `site`, `tenant` (top lists) |
 | `from`, `to` | Milliseconds since the epoch: Grafana `${__from}`, `${__to}`. Or `period` (`7`, `30`, `90`, `custom`) with `start`, `end` |
-| `user_id`, `user_name`, `type_id`, `action`, `kind`, `site_id`, `tenant_id` | Filters; `kind`: `person`, `automation` or `all` |
+| `user_id`, `user_name`, `type_id`, `action`, `kind`, `site_id`, `tenant_id` | Filters; `kind`: `person`, `automation` or `all`; `site_id=null`, `tenant_id=null`: records without a site or tenant |
 | `limit` | Rows of a top list: default 10, at most 100 |
 
 ```bash

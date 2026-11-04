@@ -18,7 +18,7 @@ from core.models import ObjectChange
 from netbox.plugins import get_plugin_config
 
 from . import __version__
-from .filters import KIND_AUTOMATION, KIND_PERSON, changeset_changelog_url, local_tz
+from .filters import KIND_AUTOMATION, KIND_PERSON, NO_SCOPE, changeset_changelog_url, local_tz
 from .chains import DEVICE, STAGES, build_chains
 from .folding import DIFF_IGNORED_FIELDS, annotate_fold
 from .labels import type_label
@@ -166,8 +166,13 @@ class Insights:
         # Site and tenant (design decision 12): an expression per record, evaluated in the database.
         for scope in SCOPES:
             value = getattr(flt, f'{scope}_id')
-            if value:
-                qs = qs.alias(**{f'scope_{scope}': scope_expression(scope)}).filter(**{f'scope_{scope}': value})
+            if value is None:
+                continue
+            qs = qs.alias(**{f'scope_{scope}': scope_expression(scope)})
+            if value == NO_SCOPE:
+                qs = qs.filter(**{f'scope_{scope}__isnull': True})
+            else:
+                qs = qs.filter(**{f'scope_{scope}': value})
         return qs
 
     def primary(self):
@@ -412,13 +417,13 @@ class Insights:
                 return False
             for scope in SCOPES:
                 value = getattr(flt, f'{scope}_id')
-                if value and root_scope[scope].get(c.root) != value:
+                if value is not None and root_scope[scope].get(c.root) != (None if value == NO_SCOPE else value):
                     return False
             return True
 
         # A chain is in the site and tenant of its root (the device or virtual machine).
         root_scope = {
-            scope: root_scopes({c.root for c in chains}, scope) if getattr(flt, f'{scope}_id') else {}
+            scope: root_scopes({c.root for c in chains}, scope) if getattr(flt, f'{scope}_id') is not None else {}
             for scope in SCOPES
         }
         chains = sorted((c for c in chains if keep(c)), key=lambda c: c.start, reverse=True)
@@ -507,31 +512,20 @@ class Insights:
         Primary records grouped by site or tenant, in one statement: totals ("g"), change sets
         per week ("w") and primary records per object type ("t"). Key NULL: no site or tenant.
         """
-        sql, params = self.primary().values(*PRIMARY_COLUMNS).order_by().query.sql_with_params()
-        # The scope expression reads the outer row as "core_objectchange": select it over the
-        # primary ids, so that it is evaluated once per primary record.
-        scoped = (
-            f'SELECT p0.*, {scope_sql(scope)} AS s '
-            f'FROM ({sql}) AS p0 JOIN core_objectchange ON core_objectchange.id = p0.id'
+        return self._primary_select(
+            f"SELECT 'g', s, NULL::date, NULL::bigint, count(*), count(DISTINCT request_id), "
+            f"count(*) FILTER (WHERE action = 'create'), count(*) FILTER (WHERE action = 'update'), "
+            f"count(*) FILTER (WHERE action = 'delete'), "
+            f"count(DISTINCT (changed_object_type_id, changed_object_id)), "
+            f"count(DISTINCT coalesce(user_id::text, user_name)), max(time) FROM p GROUP BY s "
+            f"UNION ALL SELECT 'w', s, date_trunc('week', time AT TIME ZONE %s)::date, NULL, "
+            f"count(DISTINCT request_id), NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM p GROUP BY 2, 3 "
+            f"UNION ALL SELECT 't', s, NULL, changed_object_type_id, count(*), NULL, NULL, NULL, NULL, NULL, NULL, "
+            f"NULL FROM p GROUP BY 2, 4 "
+            f"UNION ALL SELECT 'a', NULL, NULL, NULL, count(*), count(DISTINCT request_id), NULL, NULL, NULL, NULL, "
+            f"NULL, NULL FROM p",
+            [str(self.tz)], scope,
         )
-        tz = str(self.tz)
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"WITH p AS MATERIALIZED ({scoped}) "
-                f"SELECT 'g', s, NULL::date, NULL::bigint, count(*), count(DISTINCT request_id), "
-                f"count(*) FILTER (WHERE action = 'create'), count(*) FILTER (WHERE action = 'update'), "
-                f"count(*) FILTER (WHERE action = 'delete'), "
-                f"count(DISTINCT (changed_object_type_id, changed_object_id)), "
-                f"count(DISTINCT coalesce(user_id::text, user_name)), max(time) FROM p GROUP BY s "
-                f"UNION ALL SELECT 'w', s, date_trunc('week', time AT TIME ZONE %s)::date, NULL, "
-                f"count(DISTINCT request_id), NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM p GROUP BY 2, 3 "
-                f"UNION ALL SELECT 't', s, NULL, changed_object_type_id, count(*), NULL, NULL, NULL, NULL, NULL, NULL, "
-                f"NULL FROM p GROUP BY 2, 4 "
-                f"UNION ALL SELECT 'a', NULL, NULL, NULL, count(*), count(DISTINCT request_id), NULL, NULL, NULL, NULL, "
-                f"NULL, NULL FROM p",
-                list(params) + [tz],
-            )
-            return cursor.fetchall()
 
     def _scope_labels(self, scope, ids):
         """Name and URL of each site or tenant; a deleted one: the name of its latest record."""
@@ -590,9 +584,21 @@ class Insights:
 
     # Activity page
 
-    def _primary_select(self, select, extra_params=()):
-        """Run select over the primary records "p" of the filter (one CTE, the fold evaluated once)."""
+    def _primary_select(self, select, extra_params=(), scope=None):
+        """
+        Run select over the primary records "p" of the filter (one CTE, the fold evaluated
+        once). With scope ("site" or "tenant"), "p" has a column "s": its id, or NULL.
+        """
         sql, params = self.primary().values(*PRIMARY_COLUMNS).order_by().query.sql_with_params()
+        if scope:
+            # The scope expression reads the outer row as "core_objectchange": evaluate it over
+            # the primary records only, once per record.
+            sql = (
+                f'SELECT p0.*, {scope_sql(scope)} AS s '
+                f'FROM ({sql}) AS p0 JOIN core_objectchange ON core_objectchange.id = p0.id'
+            )
+        else:
+            sql = f'SELECT p0.*, NULL::bigint AS s FROM ({sql}) AS p0'
         with connection.cursor() as cursor:
             cursor.execute(f'WITH p AS MATERIALIZED ({sql}) {select}', list(params) + list(extra_params))
             return cursor.fetchall()
@@ -607,7 +613,7 @@ class Insights:
     def _activity_page(self, by, bucket, top):
         """
         Primary changes per bucket (day or week) split by one dimension (user, app, model,
-        action), the top groups and "other"; change sets per bucket; and change sets per
+        action, site, tenant), the top groups and "other"; change sets per bucket; and change sets per
         weekday and hour, all in TIME_ZONE.
         """
         tz = str(self.tz)
@@ -615,25 +621,35 @@ class Insights:
         # per bucket ("s") and change sets per weekday and hour ("h").
         trunc = "date_trunc(%s, time AT TIME ZONE %s)::date"
         local = "time AT TIME ZONE %s"
+        scope = by if by in SCOPES else None
         result = self._primary_select(
-            f"SELECT 'r', {trunc}, user_id, user_name, changed_object_type_id, action, count(*) FROM p "
-            "GROUP BY 2, 3, 4, 5, 6 "
-            f"UNION ALL SELECT 's', {trunc}, NULL, NULL, NULL, NULL, count(DISTINCT request_id) FROM p GROUP BY 2 "
+            f"SELECT 'r', {trunc}, user_id, user_name, changed_object_type_id, action, s, count(*) FROM p "
+            "GROUP BY 2, 3, 4, 5, 6, 7 "
+            f"UNION ALL SELECT 's', {trunc}, NULL, NULL, NULL, NULL, NULL, count(DISTINCT request_id) FROM p "
+            "GROUP BY 2 "
             f"UNION ALL SELECT 'h', NULL, extract(isodow FROM {local})::bigint, NULL, "
-            f"extract(hour FROM {local})::bigint, NULL, count(DISTINCT request_id) FROM p GROUP BY 3, 5",
+            f"extract(hour FROM {local})::bigint, NULL, NULL, count(DISTINCT request_id) FROM p GROUP BY 3, 5",
             (bucket, tz, bucket, tz, tz, tz),
+            scope,
         )
+        # r: (bucket, user id, user name, type id, action, site or tenant id, primary changes)
         rows = [r[1:] for r in result if r[0] == 'r']
-        sets = {r[1]: r[6] for r in result if r[0] == 's'}
-        heat = [(r[2], r[4], r[6]) for r in result if r[0] == 'h']
+        sets = {r[1]: r[7] for r in result if r[0] == 's'}
+        heat = [(r[2], r[4], r[7]) for r in result if r[0] == 'h']
 
         types = ContentType.objects.in_bulk({r[3] for r in rows})
         action_labels = {c[0]: str(c[1]) for c in ObjectChangeActionChoices.CHOICES}
         users = dict(get_user_model().objects.filter(
             pk__in={r[1] for r in rows if r[1]}).values_list('pk', 'username'))
+        scope_labels = self._scope_labels(scope, {r[5] for r in rows if r[5] is not None}) if scope else {}
+        none_label = {'site': 'No site', 'tenant': 'No tenant'}
 
         def key(r):
             """(group key, label, filter parameters for links) of a row."""
+            if scope:
+                if r[5] is None:
+                    return 'none', none_label[scope], {f'{scope}_id': 'null'}
+                return r[5], scope_labels[r[5]]['name'], {f'{scope}_id': r[5]}
             if by == 'user':
                 if r[1]:
                     return ('u', r[1]), users.get(r[1], r[2]), {'user_id': r[1]}
@@ -650,9 +666,9 @@ class Insights:
         totals, labels, params, series = defaultdict(int), {}, {}, defaultdict(lambda: defaultdict(int))
         for r in rows:
             k, label, p = key(r)
-            totals[k] += r[5]
+            totals[k] += r[6]
             labels[k], params[k] = label, p
-            series[r[0]][k] += r[5]
+            series[r[0]][k] += r[6]
         ranked = sorted(totals, key=lambda k: (-totals[k], str(labels[k])))
         if by == 'action':
             ranked = [a for a in ACTIONS if a in totals]

@@ -45,7 +45,7 @@
             <tr{% if g.key is None %} class="text-secondary"{% endif %}>
               <td class="text-nowrap">
                 {% if g.key is None %}
-                  <span title="{% trans 'Records whose object has no site or tenant, or none that can be found' %}">{% if by == 'site' %}{% trans "No site" %}{% else %}{% trans "No tenant" %}{% endif %}</span>
+                  <a href="{{ g.filter_url }}" class="text-reset" title="{% trans 'Records whose object has no site or tenant, or none that can be found' %}">{% if by == 'site' %}{% trans "No site" %}{% else %}{% trans "No tenant" %}{% endif %}</a>
                 {% else %}
                   <a href="{{ g.filter_url }}" title="{% trans 'Pulse of this scope' %}">{{ g.name }}</a>
                   {% if g.url %}<a href="{{ g.url }}" class="text-secondary ms-1" title="{% trans 'Open the object' %}"><i class="mdi mdi-open-in-new"></i></a>{% endif %}

@@ -31,8 +31,8 @@
         {% if flt.kind %}<span class="badge text-bg-secondary">{% trans "Kind" %}: {{ flt.kind }}</span>{% endif %}
         {% if flt.type_id %}<span class="badge text-bg-secondary">{% trans "Type" %}: {{ flt.object_type|type_name }}</span>{% endif %}
         {% if flt.action %}<span class="badge text-bg-{{ flt.action|action_color }}">{{ flt.action|action_label }}</span>{% endif %}
-        {% if flt.site_id %}<span class="badge text-bg-secondary" title="{% trans 'Links to the core changelog do not keep this filter' %}">{% trans "Site" %}: {{ flt.site }}</span>{% endif %}
-        {% if flt.tenant_id %}<span class="badge text-bg-secondary" title="{% trans 'Links to the core changelog do not keep this filter' %}">{% trans "Tenant" %}: {{ flt.tenant }}</span>{% endif %}
+        {% if flt.site_id is not None %}<span class="badge text-bg-secondary" title="{% trans 'Links to the core changelog do not keep this filter' %}">{% trans "Site" %}: {{ flt.site }}</span>{% endif %}
+        {% if flt.tenant_id is not None %}<span class="badge text-bg-secondary" title="{% trans 'Links to the core changelog do not keep this filter' %}">{% trans "Tenant" %}: {{ flt.tenant }}</span>{% endif %}
         <a href="{{ clear_url }}" class="btn btn-sm btn-ghost-danger" title="{% trans 'Clear filter' %}"><i class="mdi mdi-close"></i> {% trans "Clear" %}</a>
       {% endif %}
       <span class="ms-auto small text-secondary">
