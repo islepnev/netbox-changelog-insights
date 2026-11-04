@@ -10,7 +10,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db import connection, transaction
-from django.db.models import Count, Max, Min, Q
+from django.db.models import BigIntegerField, Count, Max, Min, Q
+from django.db.models.expressions import RawSQL
 from django.db.models.functions import TruncDay, TruncWeek
 
 from core.choices import ObjectChangeActionChoices
@@ -22,7 +23,7 @@ from .filters import KIND_AUTOMATION, KIND_PERSON, NO_SCOPE, changeset_changelog
 from .chains import DEVICE, STAGES, build_chains
 from .folding import DIFF_IGNORED_FIELDS, annotate_fold
 from .labels import type_label
-from .scope import SCOPES, root_scopes, scope_expression, scope_sql
+from .scope import SCOPES, root_scopes, scope_expression
 
 __all__ = (
     'Insights',
@@ -589,16 +590,15 @@ class Insights:
         Run select over the primary records "p" of the filter (one CTE, the fold evaluated
         once). With scope ("site" or "tenant"), "p" has a column "s": its id, or NULL.
         """
-        sql, params = self.primary().values(*PRIMARY_COLUMNS).order_by().query.sql_with_params()
+        # The scope expression is a column of the primary query itself: PostgreSQL evaluates
+        # it once per primary record. A join back to core_objectchange by id gave a plan that
+        # scanned the table once per record when the filter made the row estimate too low.
+        qs = self.primary()
         if scope:
-            # The scope expression reads the outer row as "core_objectchange": evaluate it over
-            # the primary records only, once per record.
-            sql = (
-                f'SELECT p0.*, {scope_sql(scope)} AS s '
-                f'FROM ({sql}) AS p0 JOIN core_objectchange ON core_objectchange.id = p0.id'
-            )
+            qs = qs.annotate(s=scope_expression(scope))
         else:
-            sql = f'SELECT p0.*, NULL::bigint AS s FROM ({sql}) AS p0'
+            qs = qs.annotate(s=RawSQL('NULL::bigint', (), output_field=BigIntegerField()))
+        sql, params = qs.values(*PRIMARY_COLUMNS, 's').order_by().query.sql_with_params()
         with connection.cursor() as cursor:
             cursor.execute(f'WITH p AS MATERIALIZED ({sql}) {select}', list(params) + list(extra_params))
             return cursor.fetchall()
