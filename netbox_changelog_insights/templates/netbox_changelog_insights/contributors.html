@@ -33,7 +33,7 @@
             <th class="text-end">{% trans "Updated" %}</th>
             <th class="text-end">{% trans "Deleted" %}</th>
             <th class="text-end d-none d-xl-table-cell" title="{% trans 'All records, folded included' %}">{% trans "Records" %}</th>
-            <th title="{% trans 'Change sets per week' %}">{% trans "Weekly" %}</th>
+            <th title="{% trans 'Change sets per week; dashed: a week that the period covers in part' %}">{% trans "Weekly" %}</th>
             <th>{% trans "Top types" %}</th>
             <th class="text-nowrap">{% trans "First / last change" %}</th>
           </tr>
@@ -51,7 +51,8 @@
                 {% if u.sparkline %}
                   <svg class="insights-sparkline" width="{{ u.sparkline.width }}" height="{{ u.sparkline.height }}" viewBox="0 0 {{ u.sparkline.width }} {{ u.sparkline.height }}" role="img" aria-label="{% trans 'Change sets per week' %}">
                     <title>{{ u.sparkline.title }}</title>
-                    <polyline points="{{ u.sparkline.points }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                    {% for seg in u.sparkline.solid %}<polyline points="{{ seg }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>{% endfor %}
+                    {% for seg in u.sparkline.dashed %}<polyline points="{{ seg }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2" opacity=".6"/>{% endfor %}
                   </svg>
                 {% endif %}
               </td>
@@ -70,5 +71,6 @@
       </table>
     </div>
   </div>
-  <div class="small text-secondary mt-2">{% trans "First and last change: over the whole changelog. Other columns: the selected period." %}</div>
+  <div class="small text-secondary mt-2">{% trans "First and last change: over the whole changelog. Other columns: the selected period." %}
+    {% trans "Numbers link to the core changelog, which cannot filter by fold: it also lists the folded records." %}</div>
 {% endblock %}

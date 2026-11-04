@@ -30,6 +30,7 @@ PLUGINS_CONFIG = {
         'cache_ttl': 300,                  # seconds; 0 disables the cache
         'chain_gap_hours': 168,            # chains: longest gap between change sets on one device or VM
         'automation_gap_hours': 24,        # chains: longest gap that automation alone may bridge
+        'max_period_days': None,           # longest period of a page, in days; None: no limit
     },
 }
 ```
