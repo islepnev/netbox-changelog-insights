@@ -33,8 +33,8 @@
             <th class="text-end">{% trans "Created" %}</th>
             <th class="text-end">{% trans "Updated" %}</th>
             <th class="text-end">{% trans "Deleted" %}</th>
-            <th class="text-end" title="{% trans 'Objects with a primary change' %}">{% trans "Objects" %}</th>
-            <th class="text-end">{% trans "Users" %}</th>
+            <th class="text-end d-none d-xl-table-cell" title="{% trans 'Objects with a primary change' %}">{% trans "Objects" %}</th>
+            <th class="text-end d-none d-xl-table-cell">{% trans "Users" %}</th>
             <th title="{% trans 'Change sets per week; dashed: a week that the period covers in part' %}">{% trans "Weekly" %}</th>
             <th>{% trans "Top types" %}</th>
             <th>{% trans "Last change" %}</th>
@@ -55,8 +55,8 @@
               <td class="text-end text-green">{{ g.create }}</td>
               <td class="text-end text-blue">{{ g.update }}</td>
               <td class="text-end text-red">{{ g.delete }}</td>
-              <td class="text-end">{{ g.objects }}</td>
-              <td class="text-end">{{ g.users }}</td>
+              <td class="text-end d-none d-xl-table-cell">{{ g.objects }}</td>
+              <td class="text-end d-none d-xl-table-cell">{{ g.users }}</td>
               <td>
                 {% if g.sparkline %}
                   <svg class="insights-sparkline" width="{{ g.sparkline.width }}" height="{{ g.sparkline.height }}" viewBox="0 0 {{ g.sparkline.width }} {{ g.sparkline.height }}" role="img" aria-label="{% trans 'Change sets per week' %}">
