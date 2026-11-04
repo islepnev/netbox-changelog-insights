@@ -14,7 +14,7 @@ A NetBox plugin. Reads the changelog in place: no models, no migrations, no copy
 ## What you can see
 
 - **Pulse.** A period at a glance: change sets, records by action, active people and automation accounts, change sets per day, top users, object types and most changed objects, the latest change sets. Click a change set to see all its records.
-- **Contributors.** Per user: change sets, created, updated and deleted objects, a weekly trend, top object types, first and last change. Split people from automation with one user group.
+- **Contributors.** Per user: change sets, created, updated and deleted objects, a weekly trend, top object types, first and last change. Split people from automation with one user group. Click a user to see their own page: change sets per day, weekday and hour, sites, object types, objects, recent change sets.
 - **Activity.** Primary changes per day or week, split by action, user, app, object type, site or tenant, and change sets by weekday and hour: when people work and when automation runs. Click a group to drill down.
 - **Hotspots.** The most changed objects and fields; click a field to see its values before and after.
 - **Scope.** Activity per site or per tenant: change sets, actions, objects, users, a weekly trend, top object types. Click a site or tenant to filter every page by it.

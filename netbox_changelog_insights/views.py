@@ -24,6 +24,7 @@ __all__ = (
     'ContributorsView',
     'PulseView',
     'ScopeView',
+    'UserView',
 )
 
 
@@ -84,7 +85,7 @@ class PulseView(InsightsView):
         for r in pulse['top_types']:
             r['filter_url'] = flt.url(self.viewname, type_id=r['changed_object_type_id'])
         for u in pulse['top_users']:
-            u['filter_url'] = self.user_filter_url(flt, u)
+            u['filter_url'] = self.user_filter_url(flt, u, 'plugins:netbox_changelog_insights:user')
         contributors = 'plugins:netbox_changelog_insights:contributors'
         context.update({
             'contributors_url': flt.url(contributors),
@@ -99,6 +100,58 @@ class PulseView(InsightsView):
         return render(request, self.template_name, context)
 
 
+class UserView(InsightsView):
+    """One user: Pulse of the user, weekday and hour, sites. The user comes from the filter."""
+    template_name = 'netbox_changelog_insights/user_detail.html'
+    viewname = 'plugins:netbox_changelog_insights:user'
+
+    def get(self, request):
+        flt = InsightsFilter.from_request(request)
+        if not flt.user_id and not flt.user_name:
+            raise Http404
+        insights = Insights(request.user, flt)
+        pulse = insights.pulse()
+        activity = insights.activity_page('model', 'day')
+        sites = insights.scope_page('site')
+        span = insights.user_span()
+        if span['first'] is None:
+            raise Http404
+        context = self.base_context(request, flt, insights)
+        name = context['filter_user_label'] or flt.user_name
+        for r in pulse['top_types']:
+            r['filter_url'] = flt.url('plugins:netbox_changelog_insights:pulse', type_id=r['changed_object_type_id'])
+        scoped = sum(g['records'] for g in sites['groups'] if g['key'] is not None)
+        site_rows = [g for g in sites['groups'] if g['key'] is not None][:10]
+        for g in site_rows:
+            g['filter_url'] = flt.url('plugins:netbox_changelog_insights:pulse', site_id=g['key'])
+        user_params = {'user_id': flt.user_id} if flt.user_id else {'user_name': flt.user_name}
+        context['period_urls'] = [
+            (str(p), flt.url(self.viewname, period=p, start=None, end=None)) for p in PERIODS
+        ]
+        # Clear keeps the user: the user is the subject of this page, not a filter.
+        context['clear_url'] = flt.url(
+            self.viewname, type_id=None, action=None, kind=None, onboarding=None, site_id=None, tenant_id=None,
+        )
+        context.update({
+            'name': name,
+            'deleted': not flt.user_id,
+            'span': span,
+            'pulse': pulse,
+            'daily_chart': charts.bar_chart(pulse['daily']),
+            'heat': charts.heatmap(activity['heat']),
+            'recent': pulse['recent'],
+            'sites': site_rows,
+            'no_site': pulse['primary']['records'] - scoped,
+            'action_urls': {a: flt.changelog_url(action=a) for a in ('create', 'update', 'delete')},
+            'activity_url': flt.url('plugins:netbox_changelog_insights:activity', by='model'),
+            'chains_url': flt.url('plugins:netbox_changelog_insights:chains'),
+            'contributors_url': flt.url('plugins:netbox_changelog_insights:contributors', user_id=None,
+                                        user_name=None),
+            'user_params': user_params,
+        })
+        return render(request, self.template_name, context)
+
+
 class ContributorsView(InsightsView):
     template_name = 'netbox_changelog_insights/contributors.html'
     viewname = 'plugins:netbox_changelog_insights:contributors'
@@ -109,7 +162,7 @@ class ContributorsView(InsightsView):
         data = insights.contributors()
         peak = max((max(u['weekly'], default=0) for u in data['users']), default=0)
         for u in data['users']:
-            u['filter_url'] = self.user_filter_url(flt, u, 'plugins:netbox_changelog_insights:pulse')
+            u['filter_url'] = self.user_filter_url(flt, u, 'plugins:netbox_changelog_insights:user')
             u['sparkline'] = charts.sparkline(u['weekly'], peak, data['weeks'], flt.start_date, flt.end_date)
         context = self.base_context(request, flt, insights)
         context.update(data)

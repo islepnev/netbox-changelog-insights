@@ -855,6 +855,19 @@ class Insights:
             return [{group: g['name'], f'{group}_id': g['key'], **counts(g)} for g in rows[:limit]]
         raise ValueError(group)
 
+    # User page
+
+    def user_span(self):
+        """First and last change of the filtered user over the whole changelog in scope; kind."""
+        qs = self.scope
+        if self.flt.user_id:
+            qs = qs.filter(user_id=self.flt.user_id)
+        else:
+            qs = qs.filter(user__isnull=True, user_name=self.flt.user_name)
+        span = qs.aggregate(first=Min('time'), last=Max('time'))
+        span['kind'] = self.kind_of(self.flt.user_id, self.automation_user_ids())
+        return span
+
     # Contributors
 
     def contributors(self):

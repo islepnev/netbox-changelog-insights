@@ -1,0 +1,26 @@
+{% load i18n %}
+{% if heat.peak %}
+  <div class="table-responsive">
+    <table class="insights-heat" aria-label="{% trans 'Change sets by weekday and hour' %}">
+      <thead>
+        <tr><th></th>{% for h in heat.hours %}<th scope="col">{% if forloop.counter0|divisibleby:3 %}{{ forloop.counter0 }}{% endif %}</th>{% endfor %}<th scope="col" class="text-end">{% trans "Sum" %}</th></tr>
+      </thead>
+      <tbody>
+        {% for row in heat.rows %}
+          <tr>
+            <th scope="row">{% trans row.day %}</th>
+            {% for c in row.cells %}<td class="insights-heat-{{ c.level }}" title="{% trans row.day %} {{ c.hour|stringformat:'02d' }}:00–{{ c.hour|add:1|stringformat:'02d' }}:00: {{ c.value }} {% trans 'change sets' %}"><span class="visually-hidden">{{ c.value }}</span></td>{% endfor %}
+            <td class="text-end small text-secondary">{{ row.total }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="d-flex align-items-center gap-1 small text-secondary mt-2">
+    {% trans "Fewer" %}
+    {% for s in heat.steps %}<span class="insights-heat-key insights-heat-{{ s }}"></span>{% endfor %}
+    {% blocktrans with n=heat.peak %}More (peak {{ n }} per hour){% endblocktrans %}
+  </div>
+{% else %}
+  <div class="text-secondary text-center py-4">{% trans "No changes in this period" %}</div>
+{% endif %}

@@ -1,0 +1,168 @@
+{% extends 'generic/_base.html' %}
+{% load i18n insights %}
+
+{% block title %}{{ name }}{% endblock %}
+{% block head %}{% include 'netbox_changelog_insights/inc/head.html' %}{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary">
+    {% if deleted %}<span class="badge text-bg-secondary" title="{% trans 'The user account is deleted' %}">{% trans "deleted" %}</span>{% endif %}
+    {% if span.kind == 'automation' %}<i class="mdi mdi-robot-outline"></i> {% trans "Automation" %}{% elif span.kind == 'person' %}{% trans "Person" %}{% else %}{% trans "User" %}{% endif %}.
+    {% blocktrans with first=span.first|date:"Y-m-d" last=span.last|date:"Y-m-d" %}First change {{ first }}, last change {{ last }}.{% endblocktrans %}
+    <a href="{{ contributors_url }}">{% trans "All contributors" %}</a>
+  </div>
+{% endblock %}
+
+{% block tabs %}{% include 'netbox_changelog_insights/inc/tabs.html' with active='user' %}{% endblock %}
+
+{% block content %}
+  {% include 'netbox_changelog_insights/inc/filter_bar.html' %}
+  {% with t=pulse.totals p=pulse.primary %}
+  <div class="row row-cards mb-3">
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="subheader">{% trans "Change sets" %}</div>
+        <div class="h1 mb-1"><a href="{{ flt.changelog_url }}" class="text-reset">{{ p.change_sets }}</a></div>
+        <div class="text-secondary small">{% blocktrans with n=p.records %}{{ n }} primary changes{% endblocktrans %}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="subheader">{% trans "Primary changes" %}</div>
+        <div class="h1 mb-1">{{ p.records }}</div>
+        <div class="small">
+          <a href="{{ action_urls.create }}" class="text-green">{{ p.create }} {% trans "created" %}</a>,
+          <a href="{{ action_urls.update }}" class="text-blue">{{ p.update }} {% trans "updated" %}</a>,
+          <a href="{{ action_urls.delete }}" class="text-red">{{ p.delete }} {% trans "deleted" %}</a>
+        </div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="subheader">{% trans "Objects" %}</div>
+        <div class="h1 mb-1">{{ p.objects }}</div>
+        <div class="text-secondary small">{% blocktrans with n=t.records f=t.folded %}{{ n }} records, {{ f }} folded{% endblocktrans %}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="subheader">{% trans "Sites" %}</div>
+        <div class="h1 mb-1">{{ sites|length }}</div>
+        <div class="text-secondary small">{% blocktrans with n=no_site %}{{ n }} primary changes without a site{% endblocktrans %}</div>
+      </div></div>
+    </div>
+  </div>
+  {% endwith %}
+
+  <div class="card mb-3">
+    <div class="card-header"><h2 class="card-title">{% trans "Change sets per day" %}</h2>
+      <div class="card-actions small text-secondary">{% blocktrans with n=daily_chart.peak %}Peak: {{ n }}{% endblocktrans %}</div>
+    </div>
+    <div class="card-body">
+      {% include 'netbox_changelog_insights/inc/bar_chart.html' with chart=daily_chart %}
+    </div>
+  </div>
+
+  <div class="row row-cards mb-3">
+    <div class="col-xl-8">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2 class="card-title">{% trans "Change sets by weekday and hour" %}</h2>
+          <div class="card-actions small"><span class="text-secondary me-2">{{ TIME_ZONE_NAME }}</span><a href="{{ activity_url }}">{% trans "Activity" %}</a></div>
+        </div>
+        <div class="card-body">
+          {% include 'netbox_changelog_insights/inc/heatmap.html' %}
+        </div>
+      </div>
+    </div>
+    <div class="col-xl-4">
+      <div class="card h-100">
+        <div class="card-header"><h2 class="card-title">{% trans "Sites" %}</h2></div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover card-table mb-0">
+            <thead><tr><th>{% trans "Site" %}</th><th class="text-end">{% trans "Sets" %}</th><th class="text-end" title="{% trans 'Primary changes' %}">{% trans "Changes" %}</th></tr></thead>
+            <tbody>
+              {% for g in sites %}
+                <tr>
+                  <td><a href="{{ g.filter_url }}" title="{% trans 'Pulse of this user and site' %}">{{ g.name }}</a></td>
+                  <td class="text-end">{{ g.change_sets }}</td>
+                  <td class="text-end">{{ g.records }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="3" class="text-secondary text-center py-3">{% trans "No changes with a site in this period" %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row row-cards mb-3">
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header"><h2 class="card-title">{% trans "Top object types" %}</h2></div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover card-table mb-0">
+            <thead><tr><th>{% trans "Type" %}</th><th class="text-end">{% trans "Sets" %}</th><th class="text-end" title="{% trans 'Primary changes' %}">{% trans "Changes" %}</th></tr></thead>
+            <tbody>
+              {% for r in pulse.top_types %}
+                <tr>
+                  <td><a href="{{ r.filter_url }}" title="{% trans 'Pulse of this user and type' %}">{{ r.type_label }}</a></td>
+                  <td class="text-end"><a href="{{ r.changelog_url }}">{{ r.change_sets }}</a></td>
+                  <td class="text-end" title="{{ r.create }} {% trans 'created' %}, {{ r.update }} {% trans 'updated' %}, {{ r.delete }} {% trans 'deleted' %}">{{ r.records }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="3" class="text-secondary text-center py-3">{% trans "No changes in this period" %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header"><h2 class="card-title">{% trans "Most changed objects" %}</h2></div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover card-table mb-0">
+            <thead><tr><th>{% trans "Object" %}</th><th class="text-end">{% trans "Sets" %}</th></tr></thead>
+            <tbody>
+              {% for r in pulse.top_objects %}
+                <tr>
+                  <td>
+                    {% if r.object_url %}<a href="{{ r.object_url }}">{{ r.repr }}</a>{% else %}<span class="{% if r.deleted %}text-decoration-line-through text-secondary{% endif %}">{{ r.repr }}</span>{% endif %}
+                    <span class="small text-secondary ms-1">{{ r.type_label }}</span>
+                  </td>
+                  <td class="text-end"><a href="{{ r.changelog_url }}">{{ r.change_sets }}</a></td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="2" class="text-secondary text-center py-3">{% trans "No changes in this period" %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><h2 class="card-title">{% trans "Recent change sets" %}</h2>
+      <div class="card-actions small"><a href="{{ chains_url }}">{% trans "Chains of this user" %}</a></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm card-table mb-0 insights-changesets">
+        <thead><tr>
+          <th style="width:1%"></th><th>{% trans "Time" %}</th><th>{% trans "User" %}</th><th>{% trans "Change" %}</th>
+          <th class="text-end" title="{% trans 'Primary changes' %}">{% trans "Changes" %}</th>
+          <th class="text-end">{% trans "Folded" %}</th><th class="text-end">{% trans "Records" %}</th>
+        </tr></thead>
+        {% for cs in recent %}
+          {% include 'netbox_changelog_insights/inc/changeset_row.html' %}
+        {% empty %}
+          <tbody><tr><td colspan="7" class="text-secondary text-center py-3">{% trans "No changes in this period" %}</td></tr></tbody>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+  <div class="small text-secondary mt-2">{% trans "First and last change: over the whole changelog. Other numbers: the selected period and filter. Counts are primary changes; side effects are folded." %}</div>
+{% endblock %}

@@ -64,6 +64,7 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 | Actor kind | Person/automation split on all pages | S |
 | Hotspots | Most changed objects; most changed fields per model; values before and after per field (done) | M |
 | API | Aggregates over REST for Grafana: `activity/` by day, week, user, type; Grafana row in `docs/grafana-row.json` (done) | S |
+| User | One user: change sets per day, weekday × hour, sites, top types and objects, recent change sets, first and last change; the user is a filter, so every page opens for that user (done) | M |
 | Scope | Per site or tenant: change sets, actions, objects, users, weekly trend, top types; site and tenant filter on all pages and the API (done) | L |
 
 ## Out of scope

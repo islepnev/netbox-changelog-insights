@@ -289,6 +289,28 @@ class ViewTestCase(TestCase):
         self.assertIsNotNone(users['alice']['first'])
         self.assertContains(r, 'mdi-robot-outline')
 
+    def test_user_page(self):
+        url = reverse('plugins:netbox_changelog_insights:user')
+        self.client.force_login(self.viewer)
+        self.assertEqual(self.client.get(url).status_code, 404)              # no user
+        self.assertEqual(self.client.get(url, {'user_name': 'nobody-here'}).status_code, 404)
+        r = self.client.get(url, {'period': '7', 'user_id': self.alice.pk})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.context['name'], 'alice')
+        self.assertEqual(r.context['pulse']['primary']['change_sets'], 2)
+        self.assertEqual(r.context['heat']['total'], 2)
+        self.assertEqual([g['name'] for g in r.context['sites']], ['Site 1'])
+        self.assertEqual(r.context['span']['kind'], 'person')
+        self.assertIn(f'user_id={self.alice.pk}', r.context['clear_url'])
+        # A deleted user, by name.
+        r = self.client.get(url, {'period': '7', 'user_name': 'gone'})
+        self.assertTrue(r.context['deleted'])
+        self.assertEqual(r.context['pulse']['primary']['change_sets'], 1)
+        # Contributors and Pulse link a user to this page.
+        r = self.client.get(reverse(CONTRIBUTORS), {'period': '7'})
+        alice = next(u for u in r.context['users'] if u['user_name'] == 'alice')
+        self.assertTrue(alice['filter_url'].startswith(url))
+
     def test_change_set_fragment(self):
         self.client.force_login(self.viewer)
         url = reverse('plugins:netbox_changelog_insights:changeset', kwargs={'request_id': self.cable_rid})
