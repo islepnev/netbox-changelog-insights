@@ -81,4 +81,13 @@ Dimensions for grouping and filtering: period, actor, actor kind, app, model, ac
 
 ## Open questions
 
-- Whether aggregates over the full history (5 years, 331k records) stay fast without rollup tables. To measure on the production NetBox.
+- Whether aggregates over the full history stay fast without rollup tables. Measured on the production NetBox (`tools/timing.py`, 2026-11-04, PostgreSQL 16, data in shared buffers, cache off), seconds:
+
+  | Period | Records | Pulse | Contributors | Chains |
+  |---|---|---|---|---|
+  | 7 days | 1,258 | 0.2 | 0.2 | 0.8 |
+  | 30 days | 13,265 | 0.7 | 0.7 | 2.1 |
+  | 90 days | 58,251 | 2.2 | 2.2 | 5.3 |
+  | Full, since 2021-08-02 | 331,052 | 8.3 | 7.4 | 19.6 |
+
+  The fold takes the time: in the Pulse query for 90 days it is 1.9 s of 2.2 s (about 32 µs per record, correlated subqueries per record, 846,546 buffer hits, no disk reads); the groups after it take 20 to 50 ms each. The first query after a start took 4.3 s (cold cache). JIT made no difference on this server. Up to 90 days the pages stay within a few seconds and the cache (`cache_ttl`) serves repeats; the full history does not. Options: limit the period (`max_period_days`), or compute the fold once per change set with window functions instead of a subquery per record.

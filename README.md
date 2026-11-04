@@ -71,7 +71,7 @@ All settings are optional: `PLUGINS_CONFIG = {'netbox_changelog_insights': {...}
 
 ## Permissions and performance
 
-The pages and the API require `core.view_objectchange`, as the core changelog, and show only the records the user may view. Aggregates are SQL over the indexed time range and are cached per filter. On a synthetic changelog of 68,288 records in 90 days, with the cache off (`tools/timing.py`): Pulse 2.4 s, Contributors 2.1 s, Activity 2.0 s, Chains 5.0 s.
+The pages and the API require `core.view_objectchange`, as the core changelog, and show only the records the user may view. Aggregates are SQL over the indexed time range and are cached per filter. Measured on a production changelog with the cache off (`tools/timing.py`): 90 days, 58,251 records: Pulse 2.2 s, Contributors 2.2 s, Chains 5.3 s; full history of 5 years, 331,052 records: Pulse 8.3 s, Chains 19.6 s. Set `max_period_days` to bound long periods.
 
 ## API for Grafana
 
