@@ -74,7 +74,7 @@ class PulseView(InsightsView):
             'automation_url': flt.url(contributors, kind='automation'),
             'pulse': pulse,
             'daily_chart': charts.bar_chart(pulse['daily']),
-            'recent': insights.recent_change_sets(),
+            'recent': pulse['recent'],
             'automation_ids': insights.automation_user_ids(),
         })
         return render(request, self.template_name, context)

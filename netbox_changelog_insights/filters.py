@@ -71,7 +71,8 @@ class InsightsFilter:
     def from_request(cls, request, now=None):
         form = InsightsFilterForm(request.GET)
         valid = form.is_valid()
-        data = form.cleaned_data if valid else {}
+        # Keep the valid fields; report and drop the others.
+        data = form.cleaned_data
         tz = local_tz()
         now = (now or timezone.now()).astimezone(tz)
         today = now.date()
