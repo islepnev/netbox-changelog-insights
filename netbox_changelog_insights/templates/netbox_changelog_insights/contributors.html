@@ -24,7 +24,7 @@
       {% endif %}
     </div>
     <div class="table-responsive">
-      <table class="table table-hover card-table mb-0">
+      <table class="table table-hover card-table mb-0 insights-compact">
         <thead>
           <tr>
             <th>{% trans "User" %}</th>
@@ -35,7 +35,7 @@
             <th class="text-end d-none d-xl-table-cell" title="{% trans 'All records, folded included' %}">{% trans "Records" %}</th>
             <th title="{% trans 'Change sets per week; dashed: a week that the period covers in part' %}">{% trans "Weekly" %}</th>
             <th>{% trans "Top types" %}</th>
-            <th class="text-nowrap">{% trans "First / last change" %}</th>
+            <th>{% trans "First / last change" %}</th>
           </tr>
         </thead>
         <tbody>
