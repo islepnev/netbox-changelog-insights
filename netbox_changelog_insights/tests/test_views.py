@@ -49,6 +49,19 @@ class FilterTestCase(TestCase):
         self.assertIsNone(f.type_id)
 
     @override_settings(TIME_ZONE='UTC')
+    def test_max_period_days(self):
+        now = datetime(2026, 11, 4, 12, tzinfo=ZoneInfo('UTC'))
+        q = {'period': 'custom', 'start': '2021-08-02', 'end': '2026-11-04'}
+        f = self.flt(q, now)
+        self.assertEqual((f.start_date.isoformat(), f.cut_from), ('2021-08-02', None))
+        config = {'netbox_changelog_insights': {'max_period_days': 365}}
+        with override_settings(PLUGINS_CONFIG=config):
+            f = self.flt(q, now)
+            self.assertEqual((f.start_date.isoformat(), f.end_date.isoformat(), f.days), ('2025-11-05', '2026-11-04', 365))
+            self.assertEqual(f.cut_from.isoformat(), '2021-08-02')
+            self.assertIsNone(self.flt({'period': '90'}, now).cut_from)
+
+    @override_settings(TIME_ZONE='UTC')
     def test_changelog_url(self):
         now = datetime(2026, 11, 4, 12, tzinfo=ZoneInfo('UTC'))
         f = self.flt({'period': '7', 'user_id': '5', 'action': 'create', 'type_id': '9'}, now)
@@ -143,6 +156,17 @@ class ViewTestCase(TestCase):
         self.assertContains(r, 'alert-warning')
         self.assertEqual(r.context['pulse']['totals']['change_sets'], 2)
 
+    def test_period_cut_message(self):
+        self.client.force_login(self.viewer)
+        q = {'period': 'custom', 'start': '2020-01-01'}
+        self.assertNotContains(self.client.get(reverse(PULSE), q), 'max_period_days')
+        config = {'netbox_changelog_insights': dict(PLUGINS_CONFIG['netbox_changelog_insights'], max_period_days=30)}
+        with override_settings(PLUGINS_CONFIG=config):
+            r = self.client.get(reverse(PULSE), q)
+            self.assertContains(r, 'max_period_days')
+            self.assertEqual(r.context['flt'].days, 30)
+            self.assertEqual(r.context['pulse']['totals']['change_sets'], 4)
+
     def test_changelog_links_keep_the_filter(self):
         """Links to the core changelog carry one action and the users of the selected kind."""
         self.client.force_login(self.viewer)
@@ -232,3 +256,19 @@ class ViewTestCase(TestCase):
             cache.clear()
             third = self.client.get(reverse(PULSE)).context['pulse']['totals']['records']
             self.assertLess(third, first)
+
+
+class SparklineTestCase(TestCase):
+
+    def test_partial_weeks_are_dashed(self):
+        from datetime import date
+        from netbox_changelog_insights.charts import sparkline
+        # Period Wed 2026-10-07 .. Wed 2026-10-28: four weeks, first and last in part.
+        weeks = [date(2026, 10, 5), date(2026, 10, 12), date(2026, 10, 19), date(2026, 10, 26)]
+        s = sparkline([3, 5, 4, 1], 5, weeks, date(2026, 10, 7), date(2026, 10, 28))
+        self.assertEqual((len(s['solid']), len(s['dashed'])), (1, 2))
+        self.assertIn('Oct 5: 3 (5 of 7 days)', s['title'])
+        self.assertIn('Oct 26: 1 (3 of 7 days)', s['title'])
+        self.assertIn('Oct 12: 5,', s['title'])
+        full = sparkline([1, 2], 2, weeks[1:3], date(2026, 10, 12), date(2026, 10, 25))
+        self.assertEqual((len(full['solid']), len(full['dashed'])), (1, 0))

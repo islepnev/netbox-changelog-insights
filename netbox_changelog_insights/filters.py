@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from core.choices import ObjectChangeActionChoices
+from netbox.plugins import get_plugin_config
 
 __all__ = (
     'PERIODS',
@@ -70,6 +71,8 @@ class InsightsFilter:
     errors: dict = field(default_factory=dict)
     # Ids of the users of the selected actor kind, for links to the core changelog.
     kind_user_ids: list | None = None
+    # First day asked for, when the setting max_period_days cut the period; else None.
+    cut_from: date | None = None
 
     @classmethod
     def from_request(cls, request, now=None):
@@ -91,6 +94,12 @@ class InsightsFilter:
         if start_day is None:
             end_day = today
             start_day = today - timedelta(days=int(period) - 1)
+        # Optional upper bound of the period: keep the last max_period_days days.
+        cut_from = None
+        max_days = get_plugin_config('netbox_changelog_insights', 'max_period_days')
+        if max_days and (end_day - start_day).days + 1 > max_days:
+            cut_from = start_day
+            start_day = end_day - timedelta(days=max_days - 1)
         start = datetime.combine(start_day, time.min, tz)
         end = datetime.combine(end_day + timedelta(days=1), time.min, tz)
         return cls(
@@ -103,6 +112,7 @@ class InsightsFilter:
             action=data.get('action') or None,
             kind=data.get('kind') or None,
             onboarding=bool(data.get('onboarding')),
+            cut_from=cut_from,
             errors=dict(form.errors) if not valid else {},
         )
 
