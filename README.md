@@ -15,14 +15,17 @@ A NetBox plugin. Reads the changelog in place: no models, no migrations, no copy
 
 - **Pulse.** A period at a glance: change sets, records by action, active people and automation accounts, change sets per day, top users, object types and most changed objects, the latest change sets. Click a change set to see all its records.
 - **Contributors.** Per user: change sets, created, updated and deleted objects, a weekly trend, top object types, first and last change. Split people from automation with one user group.
+- **Activity.** Primary changes per day or week, split by action, user, app or object type, and change sets by weekday and hour: when people work and when automation runs. Click a group to drill down.
 - **Chains.** The change sets about one device or virtual machine over days, for example the onboarding of a server: stages, duration, who took part.
 - **Grafana.** The same aggregates over the REST API, and a ready row of panels for the Infinity data source.
 
 Every number links to the core changelog with the same filter. Days and weeks follow the NetBox `TIME_ZONE`.
 
-| Pulse | Contributors | Chains |
-|---|---|---|
-| ![Pulse](docs/img/pulse.png) | ![Contributors](docs/img/contributors.png) | ![Chains](docs/img/chains.png) |
+| Pulse | Contributors |
+|---|---|
+| ![Pulse](docs/img/pulse.png) | ![Contributors](docs/img/contributors.png) |
+| **Activity** | **Chains** |
+| ![Activity](docs/img/activity.png) | ![Chains](docs/img/chains.png) |
 
 The screenshots use a synthetic changelog (`dev/generate_changelog.py`); no real data is shown.
 

@@ -13,6 +13,7 @@ from django.db import connection, transaction
 from django.db.models import Count, Max, Min, Q
 from django.db.models.functions import TruncDay, TruncWeek
 
+from core.choices import ObjectChangeActionChoices
 from core.models import ObjectChange
 from netbox.plugins import get_plugin_config
 
@@ -476,6 +477,104 @@ class Insights:
                     'url': obj.get_absolute_url() if obj is not None and hasattr(obj, 'get_absolute_url') else None,
                 }
         return out
+
+    # Activity page
+
+    def _primary_select(self, select, extra_params=()):
+        """Run select over the primary records "p" of the filter (one CTE, the fold evaluated once)."""
+        sql, params = self.primary().values(*PRIMARY_COLUMNS).order_by().query.sql_with_params()
+        with connection.cursor() as cursor:
+            cursor.execute(f'WITH p AS MATERIALIZED ({sql}) {select}', list(params) + list(extra_params))
+            return cursor.fetchall()
+
+    def activity_page(self, by, bucket, top=6):
+        return self._cached(f'activity-page-{by}-{bucket}-{top}', lambda: self._activity_page_no_jit(by, bucket, top))
+
+    def _activity_page_no_jit(self, by, bucket, top):
+        with no_jit():
+            return self._activity_page(by, bucket, top)
+
+    def _activity_page(self, by, bucket, top):
+        """
+        Primary changes per bucket (day or week) split by one dimension (user, app, model,
+        action), the top groups and "other"; change sets per bucket; and change sets per
+        weekday and hour, all in TIME_ZONE.
+        """
+        tz = str(self.tz)
+        # One statement, so that the fold is evaluated once: series rows ("r"), change sets
+        # per bucket ("s") and change sets per weekday and hour ("h").
+        trunc = "date_trunc(%s, time AT TIME ZONE %s)::date"
+        local = "time AT TIME ZONE %s"
+        result = self._primary_select(
+            f"SELECT 'r', {trunc}, user_id, user_name, changed_object_type_id, action, count(*) FROM p "
+            "GROUP BY 2, 3, 4, 5, 6 "
+            f"UNION ALL SELECT 's', {trunc}, NULL, NULL, NULL, NULL, count(DISTINCT request_id) FROM p GROUP BY 2 "
+            f"UNION ALL SELECT 'h', NULL, extract(isodow FROM {local})::bigint, NULL, "
+            f"extract(hour FROM {local})::bigint, NULL, count(DISTINCT request_id) FROM p GROUP BY 3, 5",
+            (bucket, tz, bucket, tz, tz, tz),
+        )
+        rows = [r[1:] for r in result if r[0] == 'r']
+        sets = {r[1]: r[6] for r in result if r[0] == 's'}
+        heat = [(r[2], r[4], r[6]) for r in result if r[0] == 'h']
+
+        types = ContentType.objects.in_bulk({r[3] for r in rows})
+        action_labels = {c[0]: str(c[1]) for c in ObjectChangeActionChoices.CHOICES}
+        users = dict(get_user_model().objects.filter(
+            pk__in={r[1] for r in rows if r[1]}).values_list('pk', 'username'))
+
+        def key(r):
+            """(group key, label, filter parameters for links) of a row."""
+            if by == 'user':
+                if r[1]:
+                    return ('u', r[1]), users.get(r[1], r[2]), {'user_id': r[1]}
+                return ('n', r[2]), r[2], {'user_name': r[2]}
+            if by == 'action':
+                return r[4], action_labels.get(r[4], r[4]), {'action': r[4]}
+            ct = types.get(r[3])
+            if by == 'app':
+                app = ct.app_label if ct else ''
+                label = type_label(ct).split(' > ')[0] if ct else ''
+                return app, label, {}
+            return r[3], type_label(ct), {'type_id': r[3]}
+
+        totals, labels, params, series = defaultdict(int), {}, {}, defaultdict(lambda: defaultdict(int))
+        for r in rows:
+            k, label, p = key(r)
+            totals[k] += r[5]
+            labels[k], params[k] = label, p
+            series[r[0]][k] += r[5]
+        ranked = sorted(totals, key=lambda k: (-totals[k], str(labels[k])))
+        if by == 'action':
+            ranked = [a for a in ACTIONS if a in totals]
+        # Fold into "other" only two or more groups: one group is shown under its own name.
+        shown, other = (ranked, []) if len(ranked) <= top + 1 else (ranked[:top], ranked[top:])
+        groups = [{'key': str(k), 'label': labels[k], 'total': totals[k], 'params': params[k]} for k in shown]
+        if other:
+            groups.append({'key': 'other', 'label': None, 'total': sum(totals[k] for k in other), 'params': None,
+                           'count': len(other)})
+
+        # Every bucket of the period, in order; weeks start on Monday.
+        step = timedelta(days=1 if bucket == 'day' else 7)
+        d = self.flt.start_date
+        if bucket == 'week':
+            d -= timedelta(days=d.weekday())
+        buckets = []
+        while d <= self.flt.end_date:
+            values = series.get(d, {})
+            counts = [values.get(k, 0) for k in shown]
+            if other:
+                counts.append(sum(values.get(k, 0) for k in other))
+            first, last = max(d, self.flt.start_date), min(d + step - timedelta(days=1), self.flt.end_date)
+            buckets.append({
+                'start': d, 'counts': counts, 'total': sum(counts), 'change_sets': sets.get(d, 0),
+                'days': (last - first).days + 1, 'full_days': step.days,
+            })
+            d += step
+
+        grid = [[0] * 24 for _ in range(7)]
+        for dow, hour, n in heat:
+            grid[dow - 1][hour] = n
+        return {'groups': groups, 'buckets': buckets, 'heat': grid}
 
     # API for Grafana
 

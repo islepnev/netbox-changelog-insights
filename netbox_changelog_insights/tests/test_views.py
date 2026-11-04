@@ -167,6 +167,49 @@ class ViewTestCase(TestCase):
             self.assertEqual(r.context['flt'].days, 30)
             self.assertEqual(r.context['pulse']['totals']['change_sets'], 4)
 
+    def test_activity(self):
+        url = reverse('plugins:netbox_changelog_insights:activity')
+        self.client.force_login(self.nobody)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.client.force_login(self.viewer)
+        r = self.client.get(url, {'period': '7'})
+        self.assertEqual(r.status_code, 200)
+        groups = {g['key']: g['total'] for g in r.context['chart']['groups']}
+        # Primary changes: a device and a cable created, two interface updates.
+        self.assertEqual(groups, {'create': 2, 'update': 2})
+        self.assertEqual(r.context['bucket'], 'day')
+        self.assertEqual(len(r.context['chart']['bars']), 7)
+        self.assertEqual(sum(b['change_sets'] for b in r.context['chart']['bars']), 4)
+        self.assertEqual(r.context['heat']['total'], 4)
+        r = self.client.get(url, {'period': '90', 'by': 'user'})
+        labels = {g['label']: g['total'] for g in r.context['chart']['groups']}
+        self.assertEqual(labels, {'alice': 2, 'bot': 1, 'gone': 1})
+        # A user group drills down to object types of that user.
+        alice = next(g for g in r.context['chart']['groups'] if g['label'] == 'alice')
+        self.assertIn('by=model', alice['filter_url'])
+        self.assertIn(f'user_id={self.alice.pk}', alice['filter_url'])
+        r = self.client.get(url, {'by': 'model', 'bucket': 'week', 'kind': 'automation'})
+        self.assertEqual([g['label'] for g in r.context['chart']['groups']], ['DCIM > Cable'])
+        self.assertTrue(all(b['start'].weekday() == 0 for b in r.context['chart']['bars']))
+        r = self.client.get(url, {'by': 'app'})
+        self.assertEqual([g['label'] for g in r.context['chart']['groups']], ['DCIM'])
+        # The full history of a long period falls back to weeks.
+        r = self.client.get(url, {'period': 'custom', 'start': '2020-01-01'})
+        self.assertEqual(r.context['bucket'], 'week')
+
+    def test_activity_other_group(self):
+        from netbox_changelog_insights.charts import stacked_chart
+        from datetime import date
+        data = {
+            'groups': [{'key': str(i), 'label': str(i), 'total': 1, 'params': {}} for i in range(6)]
+            + [{'key': 'other', 'label': None, 'total': 2, 'params': None, 'count': 2}],
+            'buckets': [{'start': date(2026, 11, 2), 'counts': [1] * 6 + [2], 'total': 8, 'change_sets': 8,
+                         'days': 1, 'full_days': 1}],
+        }
+        chart = stacked_chart(data, 'user')
+        self.assertEqual([g['css'] for g in chart['groups']][-2:], ['insights-s6', 'insights-other'])
+        self.assertEqual(chart['bars'][0]['segments'][-1]['height'], 25)
+
     def test_changelog_links_keep_the_filter(self):
         """Links to the core changelog carry one action and the users of the selected kind."""
         self.client.force_login(self.viewer)
